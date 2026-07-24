@@ -232,6 +232,8 @@ DataSeg does not create train, validation, or test splits. Split by subject befo
 
 ## Annotation controls
 
+Use the selectors under **Current image** to jump directly to a clip or frame. Selecting a clip opens its first pending frame, while selecting a frame opens that image directly. DataSeg still asks for confirmation before leaving unsaved Mask changes.
+
 | Action | Shortcut |
 | --- | --- |
 | Select vessel Mask | `1` |

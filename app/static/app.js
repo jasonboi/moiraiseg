@@ -28,6 +28,11 @@ const ENGLISH_TEXT = {
   "适应": "Fit",
   "片段": "Clip",
   "帧": "Frame",
+  "选择片段": "Select clip",
+  "选择帧": "Select frame",
+  "选择片段后跳到首张待审核帧，也可直接选择帧。": "Choose a clip to open its first pending frame, or select a frame directly.",
+  "已跳转到所选片段": "Opened the selected clip",
+  "已跳转到所选帧": "Opened the selected frame",
   "帧 —": "Frame —",
   "帧已选": "frames selected",
   "文件": "File",
@@ -430,11 +435,22 @@ function zoomMarkup() {
 function metadataMarkup() {
   return `
     <dl class="meta-list">
-      <div class="meta-row"><dt>片段</dt><dd data-bind="clip">—</dd></div>
-      <div class="meta-row"><dt>帧</dt><dd data-bind="frame">—</dd></div>
+      <div class="meta-row meta-picker-row">
+        <dt><label for="image-clip-picker">片段</label></dt>
+        <dd class="meta-picker-value">
+          <select id="image-clip-picker" class="meta-select" data-control="image-clip" aria-label="选择片段"></select>
+        </dd>
+      </div>
+      <div class="meta-row meta-picker-row">
+        <dt><label for="image-frame-picker">帧</label></dt>
+        <dd class="meta-picker-value">
+          <select id="image-frame-picker" class="meta-select" data-control="image-frame" aria-label="选择帧"></select>
+        </dd>
+      </div>
       <div class="meta-row"><dt>文件</dt><dd data-bind="filename">—</dd></div>
       <div class="meta-row"><dt>序号</dt><dd data-bind="position">—</dd></div>
-    </dl>`;
+    </dl>
+    <p class="meta-picker-help">选择片段后跳到首张待审核帧，也可直接选择帧。</p>`;
 }
 
 function navigationMarkup() {
@@ -624,6 +640,63 @@ function setBoundText(name, value) {
   });
 }
 
+function itemsInClip(clip) {
+  return state.manifest?.items.filter((item) => item.clip === clip) || [];
+}
+
+function replaceSelectOptions(select, entries) {
+  select.replaceChildren(
+    ...entries.map(({ value, label }) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      return option;
+    }),
+  );
+}
+
+function syncImagePickers() {
+  const clipPicker = document.querySelector('[data-control="image-clip"]');
+  const framePicker = document.querySelector('[data-control="image-frame"]');
+  if (!clipPicker || !framePicker || !state.manifest) return;
+
+  const clips = [...new Set(state.manifest.items.map((item) => item.clip))];
+  if (clipPicker.options.length !== clips.length) {
+    replaceSelectOptions(
+      clipPicker,
+      clips.map((clip) => ({ value: clip, label: clip })),
+    );
+  }
+
+  const item = state.currentItem;
+  const disabled = !item || state.loading || state.saving;
+  clipPicker.disabled = disabled;
+  framePicker.disabled = disabled;
+  if (!item) return;
+
+  clipPicker.value = item.clip;
+  if (framePicker.dataset.clip !== item.clip) {
+    replaceSelectOptions(
+      framePicker,
+      itemsInClip(item.clip).map((clipItem) => ({
+        value: String(clipItem.index),
+        label: String(clipItem.frame_index).padStart(5, "0"),
+      })),
+    );
+    framePicker.dataset.clip = item.clip;
+  }
+  framePicker.value = String(item.index);
+}
+
+async function jumpToImage(index, message) {
+  if (!Number.isInteger(index) || index === state.index) {
+    syncImagePickers();
+    return;
+  }
+  const loaded = await loadItem(index, false, message);
+  if (!loaded) syncImagePickers();
+}
+
 function wireControls() {
   all('[data-action="language"]').forEach((button) => {
     button.addEventListener("click", toggleLanguage);
@@ -646,6 +719,18 @@ function wireControls() {
   });
   all('[data-control="zoom"]').forEach((input) => {
     input.addEventListener("input", () => setZoom(Number(input.value) / 100));
+  });
+  all('[data-control="image-clip"]').forEach((select) => {
+    select.addEventListener("change", () => {
+      const clipItems = itemsInClip(select.value);
+      const target = clipItems.find((item) => !item.reviewed) || clipItems[0];
+      if (target) jumpToImage(target.index, "已跳转到所选片段");
+    });
+  });
+  all('[data-control="image-frame"]').forEach((select) => {
+    select.addEventListener("change", () => {
+      jumpToImage(Number(select.value), "已跳转到所选帧");
+    });
   });
   all('[data-action="zoom-in"]').forEach((button) => button.addEventListener("click", () => setZoom(state.zoom * 1.15)));
   all('[data-action="zoom-out"]').forEach((button) => button.addEventListener("click", () => setZoom(state.zoom / 1.15)));
@@ -781,8 +866,6 @@ function syncUi() {
     element.style.width = `${percent}%`;
   });
   if (item) {
-    setBoundText("clip", item.clip);
-    setBoundText("frame", String(item.frame_index).padStart(5, "0"));
     setBoundText("filename", item.source_name);
     setBoundText("position", `${item.index + 1} / ${state.manifest.total}`);
     setBoundText("canvas-status", state.loading ? "正在载入" : state.dirty ? "未保存修改" : "已同步");
@@ -792,6 +875,7 @@ function syncUi() {
       element.classList.toggle("pending", !item.reviewed);
     });
   }
+  syncImagePickers();
   all('[data-bind="dirty-dot"]').forEach((element) => element.classList.toggle("active", state.dirty));
   all('[data-action="label"]').forEach((button) => {
     button.classList.toggle("active", button.dataset.label === state.activeLabel);
@@ -934,8 +1018,14 @@ async function fetchMasks(index, candidateOnly = false) {
 }
 
 async function loadItem(index, force = false, messageAfter = "") {
-  if (!state.manifest || state.loading) return;
-  if (!force && state.dirty && !window.confirm("当前修改还没有保存，确定离开这张图吗？")) return;
+  if (!state.manifest || state.loading) return false;
+  if (
+    !force &&
+    state.dirty &&
+    !window.confirm("当前修改还没有保存，确定离开这张图吗？")
+  ) {
+    return false;
+  }
   const total = state.manifest.total;
   state.index = ((index % total) + total) % total;
   state.currentItem = state.manifest.items[state.index];
@@ -965,8 +1055,11 @@ async function loadItem(index, force = false, messageAfter = "") {
   } catch (error) {
     state.loading = false;
     setStatus(error.message, "error");
+    syncUi();
+    return false;
   }
   syncUi();
+  return true;
 }
 
 function collectBatchIndices() {
@@ -2283,7 +2376,12 @@ function toggleAllMasks() {
 }
 
 function isEditableTarget(target) {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable;
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable
+  );
 }
 
 window.addEventListener("keydown", (event) => {
@@ -2354,7 +2452,10 @@ window.addEventListener("keydown", (event) => {
     undo();
     return;
   }
-  if (isEditableTarget(event.target) && event.key !== "Enter") return;
+  if (
+    isEditableTarget(event.target) &&
+    (event.target instanceof HTMLSelectElement || event.key !== "Enter")
+  ) return;
   if (event.key === "Enter") {
     event.preventDefault();
     saveCurrent(true);

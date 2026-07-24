@@ -636,6 +636,53 @@ input[type="range"] {
   white-space: nowrap;
 }
 
+.meta-picker-row {
+  align-items: center;
+}
+
+.meta-picker-value {
+  min-width: 0;
+  overflow: visible !important;
+}
+
+.meta-select {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 24px 5px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  background: var(--canvas-dark-soft);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+
+.meta-select:hover:not(:disabled) {
+  border-color: var(--hairline-strong);
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.meta-select:disabled {
+  color: var(--faint);
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.meta-select option {
+  background: var(--surface);
+  color: var(--ink-secondary);
+}
+
+.meta-picker-help {
+  margin: 9px 0 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .canvas-panel {
   position: relative;
   min-width: 0;
