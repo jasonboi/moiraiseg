@@ -116,6 +116,32 @@ GUI_ENGLISH = {
 }
 UI_FONT_FAMILY = "Microsoft YaHei UI"
 LOG_FONT_SIZE = 11
+UI_COLORS = {
+    "canvas": "#0b1019",
+    "surface": "#121a27",
+    "surface_soft": "#161f2d",
+    "surface_muted": "#1b2636",
+    "ink": "#f5f7fb",
+    "ink_secondary": "#d8deea",
+    "muted": "#a8b3c4",
+    "faint": "#78869c",
+    "hairline": "#243145",
+    "hairline_strong": "#35445c",
+    "primary": "#4d9cf6",
+    "primary_active": "#2f7fdc",
+    "primary_soft": "#142d4a",
+    "vessel": "#35c8d7",
+    "success": "#61d17a",
+    "success_soft": "#173522",
+    "warning": "#f0aa4f",
+    "warning_soft": "#3a2d18",
+    "danger": "#ff7c82",
+    "danger_soft": "#3a2027",
+    "danger_hover": "#4a2730",
+    "danger_active": "#572c35",
+    "canvas_dark": "#070a10",
+    "canvas_dark_soft": "#0d121b",
+}
 
 
 def translate_gui_text(value: str) -> str:
@@ -328,87 +354,301 @@ class DataSegGui:
 
     def _configure_window(self) -> None:
         self.root.title(self.tr("DataSeg 启动器"))
-        self.root.geometry("940x760")
-        self.root.minsize(820, 680)
-        self.root.configure(background="#f3f6fb")
+        self.root.geometry("980x780")
+        self.root.minsize(860, 700)
+        self.root.configure(background=UI_COLORS["canvas"])
 
         style = ttk.Style(self.root)
         if "clam" in style.theme_names():
             style.theme_use("clam")
+        self.root.option_add(
+            "*TCombobox*Listbox.background",
+            UI_COLORS["surface"],
+        )
+        self.root.option_add(
+            "*TCombobox*Listbox.foreground",
+            UI_COLORS["ink_secondary"],
+        )
+        self.root.option_add(
+            "*TCombobox*Listbox.selectBackground",
+            UI_COLORS["primary_soft"],
+        )
+        self.root.option_add(
+            "*TCombobox*Listbox.selectForeground",
+            UI_COLORS["ink"],
+        )
         style.configure(
             "TFrame",
-            background="#f3f6fb",
+            background=UI_COLORS["canvas"],
         )
         style.configure(
             "Card.TFrame",
-            background="#ffffff",
+            background=UI_COLORS["surface"],
+            borderwidth=1,
+            relief="solid",
+            bordercolor=UI_COLORS["hairline"],
+            lightcolor=UI_COLORS["hairline"],
+            darkcolor=UI_COLORS["hairline"],
+        )
+        style.configure(
+            "CardBody.TFrame",
+            background=UI_COLORS["surface"],
         )
         style.configure(
             "TLabel",
-            background="#f3f6fb",
-            foreground="#172033",
+            background=UI_COLORS["canvas"],
+            foreground=UI_COLORS["ink_secondary"],
             font=(UI_FONT_FAMILY, 10),
         )
         style.configure(
             "Card.TLabel",
-            background="#ffffff",
-            foreground="#172033",
+            background=UI_COLORS["surface"],
+            foreground=UI_COLORS["ink_secondary"],
             font=(UI_FONT_FAMILY, 10),
         )
         style.configure(
             "Section.TLabel",
-            background="#ffffff",
-            foreground="#111827",
+            background=UI_COLORS["surface"],
+            foreground=UI_COLORS["ink"],
             font=(UI_FONT_FAMILY, 12, "bold"),
         )
         style.configure(
+            "TButton",
+            background=UI_COLORS["surface_soft"],
+            foreground=UI_COLORS["ink_secondary"],
+            bordercolor=UI_COLORS["hairline_strong"],
+            lightcolor=UI_COLORS["surface_soft"],
+            darkcolor=UI_COLORS["surface_soft"],
+            focuscolor=UI_COLORS["primary"],
+            font=(UI_FONT_FAMILY, 10),
+            padding=(13, 9),
+        )
+        style.map(
+            "TButton",
+            background=[
+                ("disabled", UI_COLORS["surface"]),
+                ("pressed", UI_COLORS["primary_soft"]),
+                ("active", UI_COLORS["surface_muted"]),
+            ],
+            foreground=[
+                ("disabled", UI_COLORS["faint"]),
+                ("active", UI_COLORS["ink"]),
+            ],
+            bordercolor=[
+                ("focus", UI_COLORS["primary"]),
+                ("active", UI_COLORS["hairline_strong"]),
+            ],
+        )
+        style.configure(
             "Primary.TButton",
+            background=UI_COLORS["primary"],
+            foreground=UI_COLORS["canvas_dark"],
+            bordercolor=UI_COLORS["primary"],
+            lightcolor=UI_COLORS["primary"],
+            darkcolor=UI_COLORS["primary"],
+            focuscolor=UI_COLORS["ink"],
             font=(UI_FONT_FAMILY, 10, "bold"),
             padding=(16, 9),
         )
+        style.map(
+            "Primary.TButton",
+            background=[
+                ("disabled", UI_COLORS["surface_muted"]),
+                ("pressed", UI_COLORS["primary_active"]),
+                ("active", UI_COLORS["primary_active"]),
+            ],
+            foreground=[
+                ("disabled", UI_COLORS["faint"]),
+                ("active", UI_COLORS["ink"]),
+            ],
+            bordercolor=[
+                ("disabled", UI_COLORS["hairline"]),
+                ("focus", UI_COLORS["ink"]),
+                ("active", UI_COLORS["primary_active"]),
+            ],
+        )
         style.configure(
             "Secondary.TButton",
+            background=UI_COLORS["surface_soft"],
+            foreground=UI_COLORS["ink_secondary"],
+            bordercolor=UI_COLORS["hairline_strong"],
+            lightcolor=UI_COLORS["surface_soft"],
+            darkcolor=UI_COLORS["surface_soft"],
+            focuscolor=UI_COLORS["primary"],
             font=(UI_FONT_FAMILY, 10),
             padding=(13, 9),
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[
+                ("disabled", UI_COLORS["surface"]),
+                ("pressed", UI_COLORS["primary_soft"]),
+                ("active", UI_COLORS["surface_muted"]),
+            ],
+            foreground=[
+                ("disabled", UI_COLORS["faint"]),
+                ("active", UI_COLORS["ink"]),
+            ],
+            bordercolor=[
+                ("focus", UI_COLORS["primary"]),
+                ("active", UI_COLORS["hairline_strong"]),
+            ],
         )
         style.configure(
             "Danger.TButton",
+            background=UI_COLORS["danger_soft"],
+            foreground=UI_COLORS["danger"],
+            bordercolor=UI_COLORS["danger_soft"],
+            lightcolor=UI_COLORS["danger_soft"],
+            darkcolor=UI_COLORS["danger_soft"],
+            focuscolor=UI_COLORS["danger"],
             font=(UI_FONT_FAMILY, 10),
             padding=(13, 9),
         )
+        style.map(
+            "Danger.TButton",
+            background=[
+                ("disabled", UI_COLORS["surface"]),
+                ("pressed", UI_COLORS["danger_active"]),
+                ("active", UI_COLORS["danger_hover"]),
+            ],
+            foreground=[
+                ("disabled", UI_COLORS["faint"]),
+                ("active", UI_COLORS["ink"]),
+            ],
+            bordercolor=[
+                ("disabled", UI_COLORS["hairline"]),
+                ("focus", UI_COLORS["danger"]),
+            ],
+        )
+        for field_style in ("TEntry", "TSpinbox"):
+            style.configure(
+                field_style,
+                background=UI_COLORS["canvas_dark_soft"],
+                fieldbackground=UI_COLORS["canvas_dark_soft"],
+                foreground=UI_COLORS["ink"],
+                insertcolor=UI_COLORS["ink"],
+                bordercolor=UI_COLORS["hairline_strong"],
+                lightcolor=UI_COLORS["canvas_dark_soft"],
+                darkcolor=UI_COLORS["canvas_dark_soft"],
+                arrowcolor=UI_COLORS["muted"],
+                font=(UI_FONT_FAMILY, 10),
+                padding=(9, 7),
+            )
+            style.map(
+                field_style,
+                fieldbackground=[
+                    ("disabled", UI_COLORS["surface_muted"]),
+                ],
+                foreground=[
+                    ("disabled", UI_COLORS["faint"]),
+                ],
+                bordercolor=[
+                    ("focus", UI_COLORS["primary"]),
+                ],
+            )
+        style.configure(
+            "TCombobox",
+            background=UI_COLORS["surface_muted"],
+            fieldbackground=UI_COLORS["canvas_dark_soft"],
+            foreground=UI_COLORS["ink"],
+            selectbackground=UI_COLORS["canvas_dark_soft"],
+            selectforeground=UI_COLORS["ink"],
+            bordercolor=UI_COLORS["hairline_strong"],
+            lightcolor=UI_COLORS["canvas_dark_soft"],
+            darkcolor=UI_COLORS["canvas_dark_soft"],
+            arrowcolor=UI_COLORS["muted"],
+            font=(UI_FONT_FAMILY, 10),
+            padding=(9, 7),
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[
+                ("readonly", UI_COLORS["canvas_dark_soft"]),
+                ("disabled", UI_COLORS["surface_muted"]),
+            ],
+            foreground=[
+                ("readonly", UI_COLORS["ink"]),
+                ("disabled", UI_COLORS["faint"]),
+            ],
+            selectbackground=[
+                ("readonly", UI_COLORS["canvas_dark_soft"]),
+            ],
+            selectforeground=[
+                ("readonly", UI_COLORS["ink"]),
+            ],
+            bordercolor=[
+                ("focus", UI_COLORS["primary"]),
+            ],
+            arrowcolor=[
+                ("disabled", UI_COLORS["faint"]),
+                ("active", UI_COLORS["ink"]),
+            ],
+        )
+        style.configure(
+            "Vertical.TScrollbar",
+            background=UI_COLORS["surface_muted"],
+            troughcolor=UI_COLORS["canvas_dark"],
+            bordercolor=UI_COLORS["hairline"],
+            lightcolor=UI_COLORS["surface_muted"],
+            darkcolor=UI_COLORS["surface_muted"],
+            arrowcolor=UI_COLORS["muted"],
+        )
+        style.map(
+            "Vertical.TScrollbar",
+            background=[
+                ("pressed", UI_COLORS["primary_active"]),
+                ("active", UI_COLORS["hairline_strong"]),
+            ],
+            arrowcolor=[
+                ("active", UI_COLORS["ink"]),
+            ],
+        )
+        style.configure(
+            "TProgressbar",
+            background=UI_COLORS["primary"],
+            troughcolor=UI_COLORS["surface_muted"],
+            bordercolor=UI_COLORS["hairline"],
+            lightcolor=UI_COLORS["primary"],
+            darkcolor=UI_COLORS["primary"],
+        )
 
     def _build_ui(self) -> None:
-        header = tk.Frame(self.root, background="#101827", height=126)
+        header = tk.Frame(
+            self.root,
+            background=UI_COLORS["canvas"],
+            height=126,
+        )
         header.pack(fill="x")
         header.pack_propagate(False)
 
         tk.Label(
             header,
             text="DataSeg",
-            background="#101827",
-            foreground="#22d3ee",
+            background=UI_COLORS["canvas"],
+            foreground=UI_COLORS["vessel"],
             font=(UI_FONT_FAMILY, 12, "bold"),
         ).pack(anchor="w", padx=28, pady=(18, 0))
         tk.Label(
             header,
             text="血管与肿瘤数据标定启动器",
-            background="#101827",
-            foreground="#ffffff",
+            background=UI_COLORS["canvas"],
+            foreground=UI_COLORS["ink"],
             font=(UI_FONT_FAMILY, 19, "bold"),
         ).pack(anchor="w", padx=28, pady=(2, 0))
         tk.Label(
             header,
             text="在这里配置项目并管理本地服务，标定操作仍在浏览器中完成。",
-            background="#101827",
-            foreground="#aebbd0",
+            background=UI_COLORS["canvas"],
+            foreground=UI_COLORS["muted"],
             font=(UI_FONT_FAMILY, 9),
         ).pack(anchor="w", padx=28, pady=(4, 0))
 
         self.status_label = tk.Label(
             header,
             text="检查中",
-            background="#334155",
-            foreground="#e2e8f0",
+            background=UI_COLORS["surface_muted"],
+            foreground=UI_COLORS["ink_secondary"],
             font=(UI_FONT_FAMILY, 9, "bold"),
             padx=14,
             pady=6,
@@ -418,11 +658,15 @@ class DataSegGui:
             header,
             text="English",
             command=self.toggle_language,
-            background="#1e293b",
-            foreground="#e2e8f0",
-            activebackground="#334155",
-            activeforeground="#ffffff",
-            borderwidth=0,
+            background=UI_COLORS["surface_soft"],
+            foreground=UI_COLORS["ink_secondary"],
+            activebackground=UI_COLORS["surface_muted"],
+            activeforeground=UI_COLORS["ink"],
+            borderwidth=1,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=UI_COLORS["hairline_strong"],
+            highlightcolor=UI_COLORS["primary"],
             cursor="hand2",
             font=(UI_FONT_FAMILY, 9, "bold"),
             padx=12,
@@ -434,13 +678,18 @@ class DataSegGui:
             y=70,
             anchor="ne",
         )
+        tk.Frame(
+            header,
+            background=UI_COLORS["hairline"],
+            height=1,
+        ).place(relx=0, rely=1, relwidth=1, anchor="sw")
 
-        body = ttk.Frame(self.root, padding=(22, 18, 22, 20))
+        body = ttk.Frame(self.root, padding=(22, 20, 22, 20))
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
         body.rowconfigure(2, weight=1)
 
-        config_card = ttk.Frame(body, style="Card.TFrame", padding=18)
+        config_card = ttk.Frame(body, style="Card.TFrame", padding=20)
         config_card.grid(row=0, column=0, sticky="ew")
         config_card.columnconfigure(1, weight=1)
         ttk.Label(
@@ -464,7 +713,7 @@ class DataSegGui:
             command=self.choose_output_folder,
         )
 
-        options = ttk.Frame(config_card, style="Card.TFrame")
+        options = ttk.Frame(config_card, style="CardBody.TFrame")
         options.grid(
             row=3,
             column=0,
@@ -540,7 +789,7 @@ class DataSegGui:
         )
         self.stop_button.pack(side="right")
 
-        log_card = ttk.Frame(body, style="Card.TFrame", padding=14)
+        log_card = ttk.Frame(body, style="Card.TFrame", padding=16)
         log_card.grid(row=2, column=0, sticky="nsew")
         log_card.columnconfigure(0, weight=1)
         log_card.rowconfigure(1, weight=1)
@@ -550,7 +799,7 @@ class DataSegGui:
             style="Section.TLabel",
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
 
-        log_frame = ttk.Frame(log_card, style="Card.TFrame")
+        log_frame = ttk.Frame(log_card, style="CardBody.TFrame")
         log_frame.grid(row=1, column=0, sticky="nsew")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
@@ -559,10 +808,15 @@ class DataSegGui:
             wrap="word",
             height=12,
             borderwidth=0,
-            background="#0b1220",
-            foreground="#e6edf7",
-            insertbackground="#ffffff",
-            selectbackground="#155e75",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=UI_COLORS["hairline"],
+            highlightcolor=UI_COLORS["primary"],
+            background=UI_COLORS["canvas_dark"],
+            foreground=UI_COLORS["ink_secondary"],
+            insertbackground=UI_COLORS["ink"],
+            selectbackground=UI_COLORS["primary_soft"],
+            selectforeground=UI_COLORS["ink"],
             font=(UI_FONT_FAMILY, LOG_FONT_SIZE),
             padx=12,
             pady=10,
@@ -580,24 +834,24 @@ class DataSegGui:
         self.log_text.configure(yscrollcommand=scrollbar.set)
         self.log_text.tag_configure(
             "section",
-            foreground="#67e8f9",
+            foreground=UI_COLORS["vessel"],
             font=(UI_FONT_FAMILY, LOG_FONT_SIZE, "bold"),
             spacing1=10,
             spacing3=5,
         )
         self.log_text.tag_configure(
             "success",
-            foreground="#86efac",
+            foreground=UI_COLORS["success"],
             font=(UI_FONT_FAMILY, LOG_FONT_SIZE, "bold"),
         )
         self.log_text.tag_configure(
             "error",
-            foreground="#fca5a5",
+            foreground=UI_COLORS["danger"],
             font=(UI_FONT_FAMILY, LOG_FONT_SIZE, "bold"),
         )
         self.log_text.tag_configure(
             "muted",
-            foreground="#aebbd0",
+            foreground=UI_COLORS["muted"],
         )
 
         self.progress = ttk.Progressbar(
@@ -643,7 +897,7 @@ class DataSegGui:
         kind: str,
         values: tuple[str, ...] = (),
     ) -> ttk.Widget:
-        field = ttk.Frame(parent, style="Card.TFrame")
+        field = ttk.Frame(parent, style="CardBody.TFrame")
         field.grid(
             row=0,
             column=column,
@@ -790,8 +1044,8 @@ class DataSegGui:
             self.progress.start(12)
             self.status_label.configure(
                 text=self.tr(label or "处理中"),
-                background="#854d0e",
-                foreground="#fef3c7",
+                background=UI_COLORS["warning_soft"],
+                foreground=UI_COLORS["warning"],
             )
         else:
             self.progress.stop()
@@ -982,14 +1236,22 @@ class DataSegGui:
                         if matches_output
                         else self.tr("运行中 · 其他输出")
                     ),
-                    background="#065f46" if matches_output else "#9a3412",
-                    foreground="#d1fae5" if matches_output else "#ffedd5",
+                    background=(
+                        UI_COLORS["success_soft"]
+                        if matches_output
+                        else UI_COLORS["warning_soft"]
+                    ),
+                    foreground=(
+                        UI_COLORS["success"]
+                        if matches_output
+                        else UI_COLORS["warning"]
+                    ),
                 )
             else:
                 self.status_label.configure(
                     text=self.tr("已停止"),
-                    background="#334155",
-                    foreground="#e2e8f0",
+                    background=UI_COLORS["surface_muted"],
+                    foreground=UI_COLORS["ink_secondary"],
                 )
             self.open_button.configure(
                 state="normal" if self.running else "disabled"
