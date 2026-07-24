@@ -1,0 +1,59 @@
+# Local DataSeg configuration and runtime state
+/config.json
+/logs/
+/runtime/
+**/.dataseg/
+
+# Local datasets and exported annotations
+/data/
+/datasets/
+/output/
+/outputs/
+annotation_manifest.csv
+annotation_manifest.jsonl
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+*.local.json
+
+# Python caches, environments, and build output
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.pid
+
+# Downloaded SAM2 checkpoints
+/sam2/checkpoints/*.pt
+/sam2/checkpoints/*.pth
+/sam2/checkpoints/*.ckpt
+/sam2/checkpoints/*.safetensors
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# SAM2 source is intentionally included. Download model weights with:
+# python scripts/download_model.py

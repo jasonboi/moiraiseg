@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "raw_data_dir": "",
+  "output_dir": "",
+  "sam2_before_frames": 4,
+  "sam2_after_frames": 16,
+  "vessel_only": true,
+  "sam2_device": "auto",
+  "conda_env": "usdia-seg",
+  "port": 8767
+}
