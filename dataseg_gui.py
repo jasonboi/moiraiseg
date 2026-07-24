@@ -644,18 +644,19 @@ class DataSegGui:
             font=(UI_FONT_FAMILY, 9),
         ).pack(anchor="w", padx=28, pady=(4, 0))
 
-        self.status_label = tk.Label(
+        header_actions = tk.Frame(
             header,
-            text="检查中",
-            background=UI_COLORS["surface_muted"],
-            foreground=UI_COLORS["ink_secondary"],
-            font=(UI_FONT_FAMILY, 9, "bold"),
-            padx=14,
-            pady=6,
+            background=UI_COLORS["canvas"],
         )
-        self.status_label.place(relx=1.0, x=-28, y=24, anchor="ne")
+        header_actions.place(
+            relx=1.0,
+            x=-28,
+            y=24,
+            anchor="ne",
+        )
+
         self.language_button = tk.Button(
-            header,
+            header_actions,
             text="English",
             command=self.toggle_language,
             background=UI_COLORS["surface_soft"],
@@ -672,12 +673,18 @@ class DataSegGui:
             padx=12,
             pady=5,
         )
-        self.language_button.place(
-            relx=1.0,
-            x=-28,
-            y=70,
-            anchor="ne",
+        self.language_button.pack(side="left", padx=(0, 32))
+
+        self.status_label = tk.Label(
+            header_actions,
+            text="检查中",
+            background=UI_COLORS["surface_muted"],
+            foreground=UI_COLORS["ink_secondary"],
+            font=(UI_FONT_FAMILY, 9, "bold"),
+            padx=14,
+            pady=6,
         )
+        self.status_label.pack(side="left")
         tk.Frame(
             header,
             background=UI_COLORS["hairline"],
