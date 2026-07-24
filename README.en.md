@@ -9,7 +9,7 @@ Chinese is the default language. Click `English` or `中文` in the upper-right 
 ## Features
 
 - Lasso, brush, and eraser tools for vessel and lesion Masks
-- Single-frame saving, consecutive-frame batch review, and enlarged editing
+- Single-frame saving, SAM2 propagation review, and enlarged editing
 - Bidirectional SAM2.1 keyframe propagation
 - Vessel-only and vessel-plus-lesion annotation modes
 - Automatic CUDA or CPU selection
@@ -245,11 +245,12 @@ Use the selectors under **Current image** to jump directly to a clip or frame. S
 | Save the current frame | `S` |
 | Save and jump to the earliest pending frame | `Enter` |
 | Show or hide Masks | `M` |
-| Open consecutive-frame batch review | `B` |
 | Propagate from the current SAM2 keyframe | `P` |
 | Clear the current frame's Masks | `X` |
 
 SAM2 propagates the selected Mask label. The other label keeps its existing content on each frame. Reviewed frames are shown as references and are never overwritten.
+
+In the propagation preview, Shift-click a checkbox to select or clear a frame range, or hold the pointer and drag across checkboxes to update several frames. In the enlarged editor, press `X` to clear every Mask on the current frame and `Ctrl+Z` to undo.
 
 The default range is 4 previous frames and 16 following frames. Each value may be between 0 and 32. Unselect inaccurate frames and choose a new keyframe when the probe moves, the target shape changes, the view changes, or the target leaves the image.
 

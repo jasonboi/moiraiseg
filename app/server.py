@@ -484,69 +484,6 @@ class ReviewerStore:
                 "next_index": next_index,
             }
 
-    def accept_candidates(self, indices: list[int]) -> dict:
-        if not isinstance(indices, list) or not 1 <= len(indices) <= 64:
-            raise ValueError("Select between 1 and 64 candidate frames")
-        if any(
-            not isinstance(index, int) or isinstance(index, bool) for index in indices
-        ):
-            raise ValueError("Candidate indices must be integers")
-        if len(set(indices)) != len(indices):
-            raise ValueError("Candidate indices must be unique")
-
-        selected_indices = sorted(indices)
-        items = [self.item(index) for index in selected_indices]
-        clips = {item["clip"] for item in items}
-        if len(clips) != 1:
-            raise ValueError("Batch review must stay within one capture clip")
-
-        prepared: list[tuple[int, dict, dict[str, Image.Image]]] = []
-        for index, item in zip(selected_indices, items):
-            with Image.open(self.image_path(index)) as source:
-                expected_size = source.size
-            masks: dict[str, Image.Image] = {}
-            for label in LABELS:
-                mask = self.mask_image(index, label, candidate_only=True)
-                if mask.size != expected_size:
-                    raise ValueError(
-                        f"Candidate mask size {mask.size} does not match source "
-                        f"{expected_size} for {item['id']}"
-                    )
-                masks[label] = mask.point(
-                    lambda value: 255 if value >= 128 else 0,
-                    mode="L",
-                )
-            masks = self._apply_mask_policy(masks, expected_size)
-            prepared.append((index, item, masks))
-
-        with self.lock:
-            reviewed = self.state["reviewed"]
-            already_reviewed = [
-                item["id"] for item in items if item["id"] in reviewed
-            ]
-            if already_reviewed:
-                raise ValueError(
-                    f"Candidate frame is already reviewed: {already_reviewed[0]}"
-                )
-
-            saved_at = utc_now()
-            for index, item, masks in prepared:
-                self._write_item_files(index, item, masks)
-                self._mark_reviewed(item, saved_at, "candidate_batch")
-            self._commit_review_state()
-
-            processed = len(self.state["reviewed"])
-            next_index = self._next_unreviewed(selected_indices[0] - 1)
-            return {
-                "accepted": True,
-                "accepted_indices": selected_indices,
-                "accepted_count": len(selected_indices),
-                "processed": processed,
-                "total": len(self.items),
-                "next_index": next_index,
-                "clip": items[0]["clip"],
-            }
-
     def save_batch(self, entries: list[dict]) -> dict:
         if not isinstance(entries, list) or not 1 <= len(entries) <= 64:
             raise ValueError("Select between 1 and 64 frames")
@@ -816,15 +753,6 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                         payload,
                         self.sam2_service,
                     )
-                )
-                return
-            if parsed.path == "/api/batch/accept":
-                length = int(self.headers.get("Content-Length", "0"))
-                if length <= 0 or length > 100_000:
-                    raise ValueError("Invalid request size")
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
-                self._send_json(
-                    self.store.accept_candidates(payload["indices"])
                 )
                 return
             if parsed.path == "/api/batch/save":

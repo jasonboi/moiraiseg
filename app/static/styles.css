@@ -831,21 +831,9 @@ input[type="range"] {
   grid-template-columns: 1fr;
 }
 
-.batch-open-button,
 .propagation-open-button {
   width: 100%;
   margin-top: 8px;
-}
-
-.batch-open-button {
-  border-color: #28577e;
-  background: var(--primary-soft);
-  color: #9bcaff;
-}
-
-.batch-open-button:hover {
-  border-color: #3b78aa;
-  background: #193a5c;
 }
 
 .propagation-open-button {
@@ -1025,14 +1013,13 @@ input[type="range"] {
   right: 9px;
   width: 26px;
   height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
-}
-
-.batch-card input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+  touch-action: none;
+  user-select: none;
 }
 
 .batch-check {
@@ -1165,6 +1152,16 @@ input[type="range"] {
   color: var(--muted);
 }
 
+.batch-loading {
+  flex-direction: column;
+  text-align: center;
+}
+
+.batch-loading .spinner {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
 .batch-error {
   min-height: 18px;
   margin: 6px 0;
@@ -1185,6 +1182,12 @@ input[type="range"] {
 .batch-selection strong {
   color: var(--primary);
   font-size: 19px;
+}
+
+.batch-selection-help {
+  margin: 2px 0 0;
+  color: var(--faint);
+  font-size: 10px;
 }
 
 .batch-footer-actions {

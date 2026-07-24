@@ -1,6 +1,4 @@
 const LABELS = ["vessel", "lesion"];
-const BATCH_PREVIEW_LIMIT = 8;
-const BATCH_EDIT_DEFAULT_LIMIT = 3;
 const DEFAULT_SAM2_BEFORE_FRAMES = 4;
 const DEFAULT_SAM2_AFTER_FRAMES = 16;
 const LANGUAGE_STORAGE_KEY = "dataseg-language";
@@ -39,7 +37,6 @@ const ENGLISH_TEXT = {
   "序号": "Position",
   "← 上一张": "← Previous",
   "下一张 →": "Next →",
-  "批量审核 8 帧": "Review 8 frames",
   "SAM2 传播血管": "Propagate vessel with SAM2",
   "仅保存当前帧": "Save current frame",
   "保存并下一张": "Save and continue",
@@ -52,18 +49,16 @@ const ENGLISH_TEXT = {
   "已处理 / 总数": "Processed / total",
   "待审核": "Pending",
   "已审核": "Reviewed",
-  "关闭批量审核": "Close batch review",
-  "连续帧候选 Mask": "Candidate Masks for consecutive frames",
-  "批量审核": "Batch review",
+  "关闭传播审核": "Close propagation review",
   "关闭": "Close",
-  "逐张查看叠加效果。只勾选无需修改的帧，有误的帧取消勾选并留到单帧微调。": "Check each overlay. Select only frames that need no correction. Leave inaccurate frames unselected for single-frame editing.",
   "全选": "Select all",
   "全不选": "Select none",
+  "Shift 连选 · 按住勾选框拖动可批量选择或取消": "Shift-select a range · drag across checkboxes to select or clear",
   "通过选中帧": "Accept selected frames",
   "预览内微调 · 只在确认后写入": "Preview editing · saved only after confirmation",
   "← 上一帧": "← Previous frame",
   "下一帧 →": "Next frame →",
-  "返回批量预览": "Return to batch preview",
+  "返回传播预览": "Return to propagation preview",
   "微调添加 Mask 方式": "Mask editing mode",
   "橡皮擦": "Eraser",
   "拖动画面": "Pan",
@@ -88,14 +83,11 @@ const ENGLISH_TEXT = {
   "正在载入图像和 Mask…": "Loading image and Masks…",
   "已载入保存后的审核 Mask": "Loaded the saved reviewed Mask",
   "已载入预识别 Mask": "Loaded the candidate Mask",
-  "当前已审核帧有新修改，请先按 Enter 保存，再从待审核帧开始批量操作": "This reviewed frame has unsaved changes. Press Enter to save before starting a batch from a pending frame.",
-  "当前片段后面没有待审核帧": "There are no pending frames later in this clip.",
-  "正在加载连续帧预览…": "Loading consecutive-frame previews…",
   "SAM2 返回了未知的 Mask 类别": "SAM2 returned an unknown Mask label.",
   "本项目只标注血管，不能传播肿瘤 Mask": "This project labels vessels only, so lesion Masks cannot be propagated.",
   "当前已审核帧有新修改，请先按 S 保存，再按 P 传播": "This reviewed frame has unsaved changes. Press S to save, then P to propagate.",
   "SAM2 关键帧传播失败": "SAM2 keyframe propagation failed.",
-  "没有可以批量审核的候选帧。": "No candidate frames are available for batch review.",
+  "没有可以审核的传播帧。": "No propagated frames are available for review.",
   "关键帧": "Keyframe",
   "已审核参考": "Reviewed reference",
   "已微调": "Edited",
@@ -112,8 +104,7 @@ const ENGLISH_TEXT = {
   "正在写入…": "Saving…",
   "预览里还有未保存的微调，确定关闭并丢弃吗？": "The preview contains unsaved edits. Close and discard them?",
   "SAM2 传播": "SAM2 propagation",
-  "批量": "batch",
-  "批量审核失败": "Batch review failed.",
+  "传播结果保存失败": "Could not save the propagation results.",
   "套索区域太小，请按住并沿目标边界圈画": "The lasso area is too small. Hold and trace the target boundary.",
   "已套索填充": "Lasso filled ",
   "已画笔填涂": "Brush painted ",
@@ -122,10 +113,11 @@ const ENGLISH_TEXT = {
   "已撤销上一笔": "Undid the previous stroke.",
   "已恢复当前帧的预识别 Mask": "Restored the candidate Mask for this frame.",
   "已清空当前帧的全部 Mask，按 S 保存当前帧，Enter 保存并下一张": "Cleared all Masks on this frame. Press S to save here or Enter to save and continue.",
+  "已清空当前微调帧的全部 Mask。按 Ctrl+Z 可撤销。": "Cleared all Masks on this editing frame. Press Ctrl+Z to undo.",
   "正在写入标定图片和 Mask…": "Saving the annotated image and Masks…",
   "保存失败": "Save failed.",
   "上一张已保存并标记为已审核": "The previous frame was saved and marked as reviewed.",
-  "当前帧已保存，可按 B 继续批量预览": "The current frame was saved. Press B to continue batch preview.",
+  "当前帧已保存": "The current frame was saved",
   "正在准备审核数据": "Preparing review data",
   "读取原图、预识别 Mask 和审核进度…": "Loading source images, candidate Masks, and review progress…",
   "无法读取审核清单": "Could not load the review manifest.",
@@ -159,12 +151,10 @@ function englishDynamicText(value) {
     [/^SAM2 (血管|肿瘤)传播预览$/, (match, label) => `SAM2 ${languageLabel(label)} propagation preview`],
     [/^人工关键帧 · (血管|肿瘤)双向传播$/, (match, label) => `Manual keyframe · bidirectional ${languageLabel(label)} propagation`],
     [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(血管|肿瘤) Mask。另一类 Mask 保留每帧原有内容。已审核帧只供对照且不会被覆盖，请取消勾选边界不准的帧。$/, (match, before, after, label) => `SAM2 propagated the ${languageLabel(label)} Mask ${before} previous frames and ${after} following frames from the current keyframe. The other Mask label keeps each frame's existing content. Reviewed frames are read-only and will not be overwritten. Unselect frames with inaccurate boundaries.`],
-    [/^已按相同像素位置静态套用 (\d+) 次操作，默认只选择前 (\d+) 帧。它不会跟踪目标边界，请取消勾选错位帧。$/, "Applied $1 operations at the same pixel positions. Only the first $2 frames are selected by default. This mode does not track target boundaries, so unselect misaligned frames."],
     [/^通过选中 (\d+) 帧$/, "Accept $1 selected frames"],
-    [/^确认保存这 (\d+) 帧(SAM2 传播|批量)预览中的 Mask 吗？(.*)$/s, (match, count, mode, warning) => `Save the Masks from these ${count} ${mode === "SAM2 传播" ? "SAM2 propagation" : "batch"} preview frames?${englishText(warning)}`],
+    [/^确认保存这 (\d+) 帧 SAM2 传播预览中的 Mask 吗？(.*)$/s, (match, count, warning) => `Save the Masks from these ${count} SAM2 propagation preview frames?${englishText(warning)}`],
     [/^\n另有 (\d+) 张已微调帧未勾选，这些修改会被丢弃。$/, "\n$1 edited frames are not selected. Their changes will be discarded."],
     [/^已保存 (\d+) 帧 SAM2 (血管|肿瘤)传播 Mask，取消勾选的帧仍保留待审核$/, (match, count, label) => `Saved SAM2 ${languageLabel(label)} Masks for ${count} frames. Unselected frames remain pending.`],
-    [/^已批量保存 (\d+) 帧，取消勾选的帧仍保留待审核$/, "Saved $1 frames in the batch. Unselected frames remain pending."],
     [/^(已套索填充|已画笔填涂|已擦除)(血管|肿瘤) Mask，按 Enter 保存$/, (match, action, label) => `${ENGLISH_TEXT[action]}${languageLabel(label)} Mask. Press Enter to save.`],
   ];
   for (const [pattern, replacement] of rules) {
@@ -268,9 +258,7 @@ const state = {
   gestureLabel: null,
   lassoPoints: [],
   strokePoints: [],
-  pendingOperations: [],
   batch: {
-    mode: "static",
     propagatedLabel: "vessel",
     requestId: 0,
     open: false,
@@ -278,6 +266,13 @@ const state = {
     saving: false,
     items: [],
     selected: new Set(),
+    selectionAnchor: null,
+    selectionDrag: {
+      active: false,
+      selecting: true,
+      visited: new Set(),
+      ignoreClickIndex: null,
+    },
     error: "",
     editor: {
       open: false,
@@ -459,9 +454,6 @@ function navigationMarkup() {
       <button class="plain-button" data-action="previous">← 上一张</button>
       <button class="plain-button" data-action="next">下一张 →</button>
     </div>
-    <button class="plain-button batch-open-button" data-action="batch-open">
-      批量审核 8 帧 <kbd>B</kbd>
-    </button>
     <button class="plain-button propagation-open-button" data-action="sam2-propagate">
       SAM2 传播血管 <kbd>P</kbd>
     </button>`;
@@ -506,21 +498,24 @@ function headerMarkup(compact = false) {
 function batchReviewMarkup() {
   return `
     <div class="batch-modal" data-role="batch-modal" hidden>
-      <button class="batch-backdrop" data-action="batch-close" aria-label="关闭批量审核"></button>
+      <button class="batch-backdrop" data-action="batch-close" aria-label="关闭传播审核"></button>
       <section class="batch-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-title">
         <div class="batch-overview" data-role="batch-overview">
           <header class="batch-header">
             <div>
-              <p class="batch-eyebrow" data-bind="batch-eyebrow">连续帧候选 Mask</p>
-              <h2 id="batch-title" data-bind="batch-title">批量审核</h2>
+              <p class="batch-eyebrow" data-bind="batch-eyebrow">人工关键帧 · 血管双向传播</p>
+              <h2 id="batch-title" data-bind="batch-title">SAM2 血管传播预览</h2>
             </div>
             <button class="batch-close-button" data-action="batch-close" aria-label="关闭">×</button>
           </header>
-          <p class="batch-guidance" data-bind="batch-guidance">逐张查看叠加效果。只勾选无需修改的帧，有误的帧取消勾选并留到单帧微调。</p>
+          <p class="batch-guidance" data-bind="batch-guidance"></p>
           <div class="batch-grid" data-role="batch-grid"></div>
           <p class="batch-error" data-bind="batch-error"></p>
           <footer class="batch-footer">
-            <div class="batch-selection"><strong data-bind="batch-count">0</strong> 帧已选</div>
+            <div>
+              <div class="batch-selection"><strong data-bind="batch-count">0</strong> 帧已选</div>
+              <p class="batch-selection-help">Shift 连选 · 按住勾选框拖动可批量选择或取消</p>
+            </div>
             <div class="batch-footer-actions">
               <button class="plain-button" data-action="batch-select-all">全选</button>
               <button class="plain-button" data-action="batch-clear">全不选</button>
@@ -538,7 +533,7 @@ function batchReviewMarkup() {
               <button class="plain-button" data-action="batch-editor-previous">← 上一帧</button>
               <span data-bind="batch-editor-position">0 / 0</span>
               <button class="plain-button" data-action="batch-editor-next">下一帧 →</button>
-              <button class="batch-close-button" data-action="batch-editor-done" aria-label="返回批量预览">×</button>
+              <button class="batch-close-button" data-action="batch-editor-done" aria-label="返回传播预览">×</button>
             </div>
           </header>
           <div class="batch-editor-body">
@@ -577,6 +572,9 @@ function batchReviewMarkup() {
                 <button class="plain-button" data-action="batch-editor-reset">恢复本次预览</button>
                 <button class="plain-button" data-action="batch-editor-toggle-mask">
                   <span data-bind="batch-editor-mask-toggle">隐藏 Mask</span> <kbd>M</kbd>
+                </button>
+                <button class="plain-button danger" data-action="batch-editor-clear">
+                  清空全部 <kbd>X</kbd>
                 </button>
               </div>
               <p class="batch-editor-notice" data-bind="batch-editor-notice"></p>
@@ -747,7 +745,6 @@ function wireControls() {
   all('[data-action="reset"]').forEach((button) => button.addEventListener("click", resetToCandidate));
   all('[data-action="toggle-all"]').forEach((button) => button.addEventListener("click", toggleAllMasks));
   all('[data-action="clear-all"]').forEach((button) => button.addEventListener("click", clearAllMasks));
-  all('[data-action="batch-open"]').forEach((button) => button.addEventListener("click", openBatchReview));
   all('[data-action="sam2-propagate"]').forEach((button) => button.addEventListener("click", openSam2Propagation));
   all('[data-action="batch-close"]').forEach((button) =>
     button.addEventListener("click", () => closeBatchReview(false)),
@@ -776,6 +773,9 @@ function wireControls() {
   all('[data-action="batch-editor-reset"]').forEach((button) =>
     button.addEventListener("click", resetBatchEditorMask),
   );
+  all('[data-action="batch-editor-clear"]').forEach((button) =>
+    button.addEventListener("click", clearBatchEditorMasks),
+  );
   all('[data-action="batch-editor-toggle-mask"]').forEach((button) =>
     button.addEventListener("click", toggleBatchEditorMask),
   );
@@ -797,6 +797,9 @@ function wireControls() {
   all('[data-control="batch-editor-zoom"]').forEach((input) =>
     input.addEventListener("input", () => setBatchEditorZoom(Number(input.value) / 100)),
   );
+  window.addEventListener("pointermove", continueBatchSelectionDragFromPoint);
+  window.addEventListener("pointerup", endBatchSelectionDrag);
+  window.addEventListener("pointercancel", endBatchSelectionDrag);
 }
 
 function wireCanvas() {
@@ -906,9 +909,6 @@ function syncUi() {
   all('[data-action="save-stay"]').forEach((button) => {
     button.disabled = state.loading || state.saving;
     button.innerHTML = state.saving ? "正在保存…" : "仅保存当前帧 <kbd>S</kbd>";
-  });
-  all('[data-action="batch-open"]').forEach((button) => {
-    button.disabled = state.loading || state.saving;
   });
   all('[data-action="sam2-propagate"]').forEach((button) => {
     button.disabled = state.loading || state.saving || state.batch.loading || state.batch.saving;
@@ -1037,7 +1037,6 @@ async function loadItem(index, force = false, messageAfter = "") {
   state.gestureLabel = null;
   state.lassoPoints = [];
   state.strokePoints = [];
-  state.pendingOperations = [];
   setStatus("正在载入图像和 Mask…");
   syncUi();
   try {
@@ -1062,129 +1061,10 @@ async function loadItem(index, force = false, messageAfter = "") {
   return true;
 }
 
-function collectBatchIndices() {
-  if (!state.currentItem) return [];
-  const indices = [];
-  const clip = state.currentItem.clip;
-  for (
-    let index = state.index;
-    index < state.manifest.total && indices.length < BATCH_PREVIEW_LIMIT;
-    index += 1
-  ) {
-    const item = state.manifest.items[index];
-    if (item.clip !== clip) break;
-    if (!item.reviewed) indices.push(index);
-  }
-  return indices;
-}
-
-async function loadBatchPreview(index) {
-  const item = state.manifest.items[index];
-  const sourceImage = await loadImage(`/api/item/${index}/image`);
-  let masks;
-  if (index === state.index && state.dirty) {
-    masks = {
-      vessel: cloneMaskCanvas(state.masks.vessel),
-      lesion: cloneMaskCanvas(state.masks.lesion),
-    };
-  } else {
-    const [vesselImage, lesionImage] = await Promise.all([
-      loadImage(`/api/item/${index}/mask/vessel?source=candidate`),
-      loadImage(`/api/item/${index}/mask/lesion?source=candidate`),
-    ]);
-    masks = {
-      vessel: maskCanvasFromImage(
-        vesselImage,
-        sourceImage.naturalWidth,
-        sourceImage.naturalHeight,
-      ),
-      lesion: maskCanvasFromImage(
-        lesionImage,
-        sourceImage.naturalWidth,
-        sourceImage.naturalHeight,
-      ),
-    };
-    state.pendingOperations.forEach((operation) => {
-      applyOperationToMasks(masks, operation);
-    });
-  }
-  return {
-    index,
-    item,
-    masks,
-    originalMasks: {
-      vessel: cloneMaskCanvas(masks.vessel),
-      lesion: cloneMaskCanvas(masks.lesion),
-    },
-    sourceImage,
-    preview: renderBatchPreview(sourceImage, masks),
-    selectable: true,
-    edited: false,
-  };
-}
-
 function cloneMaskCanvas(source) {
   const canvas = makeMaskCanvas(source.width, source.height);
   canvas.getContext("2d").drawImage(source, 0, 0);
   return canvas;
-}
-
-function scaledPoints(operation, canvas) {
-  const scaleX = canvas.width / operation.sourceWidth;
-  const scaleY = canvas.height / operation.sourceHeight;
-  return operation.points.map((point) => ({
-    x: point.x * scaleX,
-    y: point.y * scaleY,
-  }));
-}
-
-function applyOperationToMasks(masks, operation) {
-  if (operation.type === "clear_all") {
-    LABELS.forEach((label) => {
-      const canvas = masks[label];
-      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
-    });
-    return;
-  }
-  const canvas = masks[operation.label];
-  if (!canvas || !operation.points?.length) return;
-  const context = canvas.getContext("2d");
-  const points = scaledPoints(operation, canvas);
-  context.save();
-  if (operation.type === "add") {
-    context.globalCompositeOperation = "source-over";
-    context.fillStyle = "#ffffff";
-    tracePolygon(context, points);
-    context.fill();
-  } else if (operation.type === "paint" || operation.type === "erase") {
-    const scale =
-      (canvas.width / operation.sourceWidth +
-        canvas.height / operation.sourceHeight) /
-      2;
-    context.globalCompositeOperation =
-      operation.type === "erase" ? "destination-out" : "source-over";
-    context.strokeStyle = "#ffffff";
-    context.fillStyle = "#ffffff";
-    context.lineWidth = operation.brushSize * scale;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
-    context.stroke();
-    if (points.length === 1) {
-      context.beginPath();
-      context.arc(
-        points[0].x,
-        points[0].y,
-        (operation.brushSize * scale) / 2,
-        0,
-        Math.PI * 2,
-      );
-      context.fill();
-    }
-  }
-  context.restore();
 }
 
 function renderBatchPreview(sourceImage, masks) {
@@ -1195,55 +1075,6 @@ function renderBatchPreview(sourceImage, masks) {
   drawTint(context, masks.lesion, "#ff40a0");
   context.globalAlpha = 1;
   return canvas.toDataURL("image/jpeg", 0.82);
-}
-
-async function openBatchReview() {
-  if (state.loading || state.saving || state.batch.saving) return;
-  if (state.dirty && state.currentItem.reviewed) {
-    setStatus("当前已审核帧有新修改，请先按 Enter 保存，再从待审核帧开始批量操作", "error");
-    return;
-  }
-  const indices = collectBatchIndices();
-  if (!indices.length) {
-    setStatus("当前片段后面没有待审核帧");
-    return;
-  }
-
-  const requestId = ++state.batch.requestId;
-  state.batch.mode = "static";
-  state.batch.editor.open = false;
-  state.batch.open = true;
-  state.batch.loading = true;
-  state.batch.items = [];
-  state.batch.selected = new Set();
-  state.batch.error = "";
-  const grid = document.querySelector('[data-role="batch-grid"]');
-  if (grid) {
-    grid.innerHTML = '<div class="batch-loading"><div class="spinner"></div><span>正在加载连续帧预览…</span></div>';
-  }
-  syncBatchUi();
-  try {
-    const items = await Promise.all(indices.map(loadBatchPreview));
-    if (
-      requestId !== state.batch.requestId ||
-      !state.batch.open ||
-      state.batch.mode !== "static"
-    ) return;
-    state.batch.items = items;
-    state.batch.selected = new Set(
-      state.pendingOperations.length
-        ? indices.slice(0, BATCH_EDIT_DEFAULT_LIMIT)
-        : indices,
-    );
-    state.batch.loading = false;
-    renderBatchGrid();
-    syncBatchUi();
-  } catch (error) {
-    if (requestId !== state.batch.requestId) return;
-    state.batch.loading = false;
-    state.batch.error = error.message;
-    syncBatchUi();
-  }
 }
 
 function maskCanvasHasPixels(canvas) {
@@ -1332,13 +1163,15 @@ async function openSam2Propagation() {
 
   const keyframeIndex = state.index;
   const requestId = ++state.batch.requestId;
-  state.batch.mode = "sam2";
   state.batch.propagatedLabel = propagationLabel;
   state.batch.editor.open = false;
   state.batch.open = true;
   state.batch.loading = true;
   state.batch.items = [];
   state.batch.selected = new Set();
+  state.batch.selectionAnchor = null;
+  state.batch.selectionDrag.active = false;
+  state.batch.selectionDrag.visited = new Set();
   state.batch.error = "";
   const grid = document.querySelector('[data-role="batch-grid"]');
   if (grid) {
@@ -1364,14 +1197,12 @@ async function openSam2Propagation() {
     if (
       requestId !== state.batch.requestId ||
       !state.batch.open ||
-      state.batch.mode !== "sam2" ||
       state.index !== keyframeIndex
     ) return;
     const items = await Promise.all(result.items.map(loadSam2Preview));
     if (
       requestId !== state.batch.requestId ||
       !state.batch.open ||
-      state.batch.mode !== "sam2" ||
       state.index !== keyframeIndex
     ) return;
     state.batch.items = items;
@@ -1393,7 +1224,7 @@ function renderBatchGrid() {
   const grid = document.querySelector('[data-role="batch-grid"]');
   if (!grid) return;
   if (!state.batch.items.length) {
-    grid.innerHTML = '<div class="batch-empty">没有可以批量审核的候选帧。</div>';
+    grid.innerHTML = '<div class="batch-empty">没有可以审核的传播帧。</div>';
     return;
   }
   grid.innerHTML = state.batch.items
@@ -1406,10 +1237,9 @@ function renderBatchGrid() {
       ].join("");
       return `
       <article class="batch-card${selected ? " selected" : ""}${selectable ? "" : " reference"}" data-batch-card="${index}">
-        <label class="batch-select-toggle" aria-label="${selectable ? "选择" : "已审核参考"}帧 ${item.frame_index}">
-          <input type="checkbox" data-batch-index="${index}"${selected ? " checked" : ""}${selectable ? "" : " disabled"} />
+        <button type="button" class="batch-select-toggle" data-batch-index="${index}" aria-label="${selectable ? "选择" : "已审核参考"}帧 ${item.frame_index}" aria-pressed="${selected}"${selectable ? "" : " disabled"}>
           <span class="batch-check">✓</span>
-        </label>
+        </button>
         <span class="batch-card-badges">${badges}</span>
         <button class="batch-preview-button" data-batch-edit="${index}" aria-label="放大${selectable ? "微调" : "查看"}帧 ${item.frame_index}">
           <img src="${preview}" alt="${item.clip} 第 ${item.frame_index} 帧候选 Mask" />
@@ -1424,21 +1254,102 @@ function renderBatchGrid() {
       </article>`;
     })
     .join("");
-  all("[data-batch-index]").forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      const index = Number(checkbox.dataset.batchIndex);
-      if (checkbox.checked) {
-        state.batch.selected.add(index);
-      } else {
-        state.batch.selected.delete(index);
-      }
-      syncBatchUi();
+  all("[data-batch-index]").forEach((button) => {
+    button.addEventListener("pointerdown", (event) => {
+      beginBatchSelectionDrag(button, event);
+    });
+    button.addEventListener("pointerenter", (event) => {
+      continueBatchSelectionDrag(button, event);
+    });
+    button.addEventListener("click", (event) => {
+      const index = Number(button.dataset.batchIndex);
+      if (state.batch.selectionDrag.ignoreClickIndex === index) return;
+      applyBatchSelection(
+        index,
+        !state.batch.selected.has(index),
+        event.shiftKey,
+      );
     });
   });
   all("[data-batch-edit]").forEach((button) => {
     button.addEventListener("click", () => {
       openBatchEditor(Number(button.dataset.batchEdit));
     });
+  });
+}
+
+function selectableBatchIndices() {
+  return state.batch.items
+    .filter(({ selectable = true }) => selectable)
+    .map(({ index }) => index);
+}
+
+function setBatchItemSelection(index, selected) {
+  const item = state.batch.items.find((entry) => entry.index === index);
+  if (!item?.selectable) return;
+  if (selected) {
+    state.batch.selected.add(index);
+  } else {
+    state.batch.selected.delete(index);
+  }
+}
+
+function applyBatchSelection(index, selected, extendRange = false) {
+  const selectable = selectableBatchIndices();
+  const targetPosition = selectable.indexOf(index);
+  if (targetPosition < 0) return;
+  const anchorPosition = selectable.indexOf(state.batch.selectionAnchor);
+  if (extendRange && anchorPosition >= 0) {
+    const start = Math.min(anchorPosition, targetPosition);
+    const end = Math.max(anchorPosition, targetPosition);
+    selectable.slice(start, end + 1).forEach((itemIndex) => {
+      setBatchItemSelection(itemIndex, selected);
+    });
+  } else {
+    setBatchItemSelection(index, selected);
+    state.batch.selectionAnchor = index;
+  }
+  syncBatchUi();
+}
+
+function beginBatchSelectionDrag(button, event) {
+  if (event.button !== 0 || button.disabled) return;
+  event.preventDefault();
+  button.focus({ preventScroll: true });
+  const index = Number(button.dataset.batchIndex);
+  const selecting = !state.batch.selected.has(index);
+  state.batch.selectionDrag.active = true;
+  state.batch.selectionDrag.selecting = selecting;
+  state.batch.selectionDrag.visited = new Set([index]);
+  state.batch.selectionDrag.ignoreClickIndex = index;
+  applyBatchSelection(index, selecting, event.shiftKey);
+}
+
+function continueBatchSelectionDrag(button, event) {
+  const drag = state.batch.selectionDrag;
+  if (!drag.active || button.disabled || event.buttons === 0) return;
+  const index = Number(button.dataset.batchIndex);
+  if (drag.visited.has(index)) return;
+  drag.visited.add(index);
+  drag.ignoreClickIndex = index;
+  setBatchItemSelection(index, drag.selecting);
+  syncBatchUi();
+}
+
+function continueBatchSelectionDragFromPoint(event) {
+  if (!state.batch.selectionDrag.active || event.buttons === 0) return;
+  const target = document.elementFromPoint(event.clientX, event.clientY);
+  const button = target?.closest?.("[data-batch-index]");
+  if (button) continueBatchSelectionDrag(button, event);
+}
+
+function endBatchSelectionDrag() {
+  const drag = state.batch.selectionDrag;
+  if (!drag.active) return;
+  drag.active = false;
+  drag.visited = new Set();
+  requestAnimationFrame(() => {
+    drag.ignoreClickIndex = null;
   });
 }
 
@@ -1459,10 +1370,7 @@ function openBatchEditor(index) {
   editor.gestureLabel = null;
   editor.lassoPoints = [];
   editor.strokePoints = [];
-  editor.activeLabel =
-    state.batch.mode === "sam2"
-      ? state.batch.propagatedLabel
-      : state.activeLabel;
+  editor.activeLabel = state.batch.propagatedLabel;
   if (state.manifest.vessel_only) editor.activeLabel = "vessel";
   editor.tool = state.batch.items[position].selectable ? editor.addTool : "pan";
   syncBatchUi();
@@ -1662,6 +1570,9 @@ function syncBatchEditorUi() {
   });
   all('[data-action="batch-editor-reset"]').forEach((button) => {
     button.disabled = readOnly || !item.edited;
+  });
+  all('[data-action="batch-editor-clear"]').forEach((button) => {
+    button.disabled = readOnly;
   });
   all('[data-action="batch-editor-toggle-mask"]').forEach((button) => {
     button.classList.toggle("active", editor.maskVisible);
@@ -1871,6 +1782,22 @@ function resetBatchEditorMask() {
   syncBatchEditorUi();
 }
 
+function clearBatchEditorMasks() {
+  const item = currentBatchEditorItem();
+  if (!item || !item.selectable) return;
+  pushBatchEditorHistory();
+  LABELS.forEach((label) => {
+    const canvas = item.masks[label];
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  });
+  item.edited = true;
+  state.batch.selected.add(item.index);
+  updateBatchEditorPreview(item);
+  renderBatchEditor();
+  syncBatchEditorUi();
+  setBoundText("batch-editor-notice", "已清空当前微调帧的全部 Mask。按 Ctrl+Z 可撤销。");
+}
+
 function toggleBatchEditorMask() {
   if (!state.batch.editor.open) return;
   state.batch.editor.maskVisible = !state.batch.editor.maskVisible;
@@ -1892,27 +1819,25 @@ function syncBatchUi() {
   setBoundText("batch-error", state.batch.error);
   setBoundText(
     "batch-eyebrow",
-    state.batch.mode === "sam2"
-      ? `人工关键帧 · ${propagatedName}双向传播`
-      : "连续帧候选 Mask",
+    `人工关键帧 · ${propagatedName}双向传播`,
   );
   setBoundText(
     "batch-title",
-    state.batch.mode === "sam2"
-      ? `SAM2 ${propagatedName}传播预览`
-      : "批量审核",
+    `SAM2 ${propagatedName}传播预览`,
   );
   setBoundText(
     "batch-guidance",
-    state.batch.mode === "sam2"
-      ? `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。另一类 Mask 保留每帧原有内容。已审核帧只供对照且不会被覆盖，请取消勾选边界不准的帧。`
-      : state.pendingOperations.length
-      ? `已按相同像素位置静态套用 ${state.pendingOperations.length} 次操作，默认只选择前 ${BATCH_EDIT_DEFAULT_LIMIT} 帧。它不会跟踪目标边界，请取消勾选错位帧。`
-      : "逐张查看叠加效果。只勾选无需修改的帧，有误的帧取消勾选并留到单帧微调。",
+    `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。另一类 Mask 保留每帧原有内容。已审核帧只供对照且不会被覆盖，请取消勾选边界不准的帧。`,
   );
   all("[data-batch-card]").forEach((card) => {
     const selected = state.batch.selected.has(Number(card.dataset.batchCard));
     card.classList.toggle("selected", selected);
+  });
+  all("[data-batch-index]").forEach((button) => {
+    const selected = state.batch.selected.has(
+      Number(button.dataset.batchIndex),
+    );
+    button.setAttribute("aria-pressed", String(selected));
   });
   all('[data-action="batch-accept"]').forEach((button) => {
     button.disabled =
@@ -1939,7 +1864,6 @@ function closeBatchReview(force = false) {
   state.batch.requestId += 1;
   state.batch.open = false;
   state.batch.loading = false;
-  state.batch.mode = "static";
   state.batch.propagatedLabel = "vessel";
   state.batch.editor.open = false;
   state.batch.editor.history = [];
@@ -1947,6 +1871,10 @@ function closeBatchReview(force = false) {
   state.batch.editor.panning = false;
   state.batch.items = [];
   state.batch.selected = new Set();
+  state.batch.selectionAnchor = null;
+  state.batch.selectionDrag.active = false;
+  state.batch.selectionDrag.visited = new Set();
+  state.batch.selectionDrag.ignoreClickIndex = null;
   state.batch.error = "";
   const grid = document.querySelector('[data-role="batch-grid"]');
   if (grid) grid.innerHTML = "";
@@ -1959,24 +1887,19 @@ function selectAllBatchItems() {
       .filter(({ selectable = true }) => selectable)
       .map(({ index }) => index),
   );
-  all("[data-batch-index]").forEach((checkbox) => {
-    checkbox.checked = !checkbox.disabled;
-  });
+  state.batch.selectionAnchor = null;
   syncBatchUi();
 }
 
 function clearBatchSelection() {
   state.batch.selected = new Set();
-  all("[data-batch-index]").forEach((checkbox) => {
-    checkbox.checked = false;
-  });
+  state.batch.selectionAnchor = null;
   syncBatchUi();
 }
 
 async function acceptBatchCandidates() {
   const indices = [...state.batch.selected].sort((left, right) => left - right);
   if (!indices.length || state.batch.loading || state.batch.saving) return;
-  const previewName = state.batch.mode === "sam2" ? "SAM2 传播" : "批量";
   const editedButUnselected = state.batch.items.filter(
     ({ index, edited }) => edited && !state.batch.selected.has(index),
   ).length;
@@ -1985,7 +1908,7 @@ async function acceptBatchCandidates() {
     : "";
   if (
     !window.confirm(
-      `确认保存这 ${indices.length} 帧${previewName}预览中的 Mask 吗？${discardWarning}`,
+      `确认保存这 ${indices.length} 帧 SAM2 传播预览中的 Mask 吗？${discardWarning}`,
     )
   ) return;
 
@@ -2008,21 +1931,18 @@ async function acceptBatchCandidates() {
       }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "批量审核失败");
+    if (!response.ok) throw new Error(result.error || "传播结果保存失败");
     result.saved_indices.forEach((index) => {
       state.manifest.items[index].reviewed = true;
     });
     state.manifest.processed = result.processed;
-    const completedMode = state.batch.mode;
     const completedLabel = state.batch.propagatedLabel;
     state.batch.saving = false;
     closeBatchReview(true);
     await loadItem(
       result.next_index,
       true,
-      completedMode === "sam2"
-        ? `已保存 ${result.saved_count} 帧 SAM2 ${labelDisplayName(completedLabel)}传播 Mask，取消勾选的帧仍保留待审核`
-        : `已批量保存 ${result.saved_count} 帧，取消勾选的帧仍保留待审核`,
+      `已保存 ${result.saved_count} 帧 SAM2 ${labelDisplayName(completedLabel)}传播 Mask，取消勾选的帧仍保留待审核`,
     );
   } catch (error) {
     state.batch.saving = false;
@@ -2084,10 +2004,6 @@ function pushHistory() {
     const canvas = state.masks[label];
     snapshot[label] = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
   });
-  snapshot.pendingOperations = state.pendingOperations.map((operation) => ({
-    ...operation,
-    points: operation.points?.map((point) => ({ ...point })),
-  }));
   state.history.push(snapshot);
   if (state.history.length > 20) state.history.shift();
 }
@@ -2130,11 +2046,8 @@ function endStroke(event) {
   if (!state.drawing) return;
   event.preventDefault();
   const tool = state.tool;
-  const gestureLabel = state.gestureLabel;
-  const lassoPoints = state.lassoPoints.map((point) => ({ ...point }));
-  const strokePoints = state.strokePoints.map((point) => ({ ...point }));
   const changed =
-    tool === "lasso" ? fillLasso() : strokePoints.length > 0;
+    tool === "lasso" ? fillLasso() : state.strokePoints.length > 0;
   state.drawing = false;
   state.lastPoint = null;
   state.gestureLabel = null;
@@ -2147,14 +2060,6 @@ function endStroke(event) {
     syncUi();
     return;
   }
-  state.pendingOperations.push({
-    type: tool === "lasso" ? "add" : tool,
-    label: gestureLabel,
-    points: tool === "lasso" ? lassoPoints : strokePoints,
-    brushSize: state.brushSize,
-    sourceWidth: state.displayCanvas.width,
-    sourceHeight: state.displayCanvas.height,
-  });
   state.dirty = true;
   const action =
     tool === "lasso" ? "已套索填充" : tool === "paint" ? "已画笔填涂" : "已擦除";
@@ -2170,7 +2075,6 @@ function cancelGesture() {
       const canvas = state.masks[label];
       canvas.getContext("2d").putImageData(snapshot[label], 0, 0);
     });
-    state.pendingOperations = snapshot.pendingOperations || [];
   }
   state.drawing = false;
   state.lastPoint = null;
@@ -2272,7 +2176,6 @@ function undo() {
     const canvas = state.masks[label];
     canvas.getContext("2d").putImageData(snapshot[label], 0, 0);
   });
-  state.pendingOperations = snapshot.pendingOperations || [];
   state.dirty = true;
   renderCanvas();
   setStatus("已撤销上一笔");
@@ -2284,7 +2187,6 @@ async function resetToCandidate() {
   pushHistory();
   try {
     state.masks = await fetchMasks(state.index, true);
-    state.pendingOperations = [];
     state.dirty = true;
     renderCanvas();
     setStatus("已恢复当前帧的预识别 Mask");
@@ -2301,7 +2203,6 @@ function clearAllMasks() {
     const canvas = state.masks[label];
     canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
   });
-  state.pendingOperations.push({ type: "clear_all" });
   state.dirty = true;
   renderCanvas();
   setStatus("已清空当前帧的全部 Mask，按 S 保存当前帧，Enter 保存并下一张");
@@ -2344,10 +2245,7 @@ async function saveCurrent(advance = true) {
     if (advance) {
       await loadItem(result.next_index, true, "上一张已保存并标记为已审核");
     } else {
-      setStatus(
-        "当前帧已保存，可按 B 继续批量预览",
-        "success",
-      );
+      setStatus("当前帧已保存", "success");
     }
   } catch (error) {
     state.saving = false;
@@ -2419,6 +2317,9 @@ window.addEventListener("keydown", (event) => {
       } else if (event.key.toLowerCase() === "m") {
         event.preventDefault();
         toggleBatchEditorMask();
+      } else if (event.key.toLowerCase() === "x") {
+        event.preventDefault();
+        clearBatchEditorMasks();
       } else if (event.code === "Space") {
         event.preventDefault();
         setBatchEditorTool("pan");
@@ -2490,8 +2391,6 @@ window.addEventListener("keydown", (event) => {
   } else if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") {
     event.preventDefault();
     navigate(1);
-  } else if (event.key.toLowerCase() === "b") {
-    openBatchReview();
   } else if (event.key.toLowerCase() === "p") {
     openSam2Propagation();
   } else if (event.key === "+" || event.key === "=") {
