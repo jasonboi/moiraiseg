@@ -683,6 +683,21 @@ input[type="range"] {
   line-height: 1.45;
 }
 
+.pending-jump-button {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 10px;
+  border-color: rgba(76, 159, 255, 0.48);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.pending-jump-button:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: rgba(76, 159, 255, 0.2);
+  color: var(--ink);
+}
+
 .canvas-panel {
   position: relative;
   min-width: 0;
@@ -886,7 +901,7 @@ input[type="range"] {
 .batch-overview {
   display: grid;
   min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
 }
 
@@ -953,6 +968,48 @@ input[type="range"] {
   line-height: 1.55;
 }
 
+.batch-overwrite-option {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+
+.batch-overwrite-option:has(input:checked) {
+  border-color: #805f32;
+  background: #2c2419;
+}
+
+.batch-overwrite-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--warning);
+}
+
+.batch-overwrite-option span {
+  display: grid;
+  gap: 2px;
+}
+
+.batch-overwrite-option strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.batch-overwrite-option small {
+  color: var(--faint);
+  font-size: 9px;
+}
+
 .batch-grid {
   display: grid;
   min-height: 0;
@@ -1004,6 +1061,16 @@ input[type="range"] {
 
 .batch-card.reference:hover {
   transform: none;
+}
+
+.batch-card.overwrite-enabled {
+  border-color: #735b3b;
+  opacity: 0.9;
+}
+
+.batch-card.overwrite-enabled:hover,
+.batch-card.overwrite-enabled.selected {
+  opacity: 1;
 }
 
 .batch-select-toggle {
@@ -1085,6 +1152,12 @@ input[type="range"] {
   border-color: #285a37;
   background: rgba(234, 247, 237, 0.96);
   color: var(--success);
+}
+
+.batch-card-badge.overwrite {
+  border-color: #805f32;
+  background: rgba(44, 36, 25, 0.96);
+  color: var(--warning);
 }
 
 .batch-preview-button {

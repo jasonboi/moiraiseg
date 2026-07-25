@@ -31,6 +31,10 @@ const ENGLISH_TEXT = {
   "选择片段后跳到首张待审核帧，也可直接选择帧。": "Choose a clip to open its first pending frame, or select a frame directly.",
   "已跳转到所选片段": "Opened the selected clip",
   "已跳转到所选帧": "Opened the selected frame",
+  "跳转到下一张未审核": "Jump to next pending frame",
+  "已跳转到下一张待审核帧": "Opened the next pending frame",
+  "当前图像就是唯一待审核帧": "The current image is the only pending frame",
+  "所有图像均已审核": "All images have been reviewed",
   "帧 —": "Frame —",
   "帧已选": "frames selected",
   "文件": "File",
@@ -53,6 +57,8 @@ const ENGLISH_TEXT = {
   "关闭": "Close",
   "全选": "Select all",
   "全不选": "Select none",
+  "允许覆盖向后已审核帧": "Allow overwriting following reviewed frames",
+  "关键帧之前的已审核帧始终受保护": "Reviewed frames before the keyframe always stay protected",
   "Shift 连选 · 按住勾选框拖动可批量选择或取消": "Shift-select a range · drag across checkboxes to select or clear",
   "通过选中帧": "Accept selected frames",
   "预览内微调 · 只在确认后写入": "Preview editing · saved only after confirmation",
@@ -90,6 +96,7 @@ const ENGLISH_TEXT = {
   "没有可以审核的传播帧。": "No propagated frames are available for review.",
   "关键帧": "Keyframe",
   "已审核参考": "Reviewed reference",
+  "已审核 · 可覆盖": "Reviewed · overwrite enabled",
   "已微调": "Edited",
   "选择": "Select",
   "放大微调": "Open editor",
@@ -150,11 +157,14 @@ function englishDynamicText(value) {
     [/^正在传播当前帧(血管|肿瘤) Mask…$/, (match, label) => `Propagating the current ${languageLabel(label)} Mask…`],
     [/^SAM2 (血管|肿瘤)传播预览$/, (match, label) => `SAM2 ${languageLabel(label)} propagation preview`],
     [/^人工关键帧 · (血管|肿瘤)双向传播$/, (match, label) => `Manual keyframe · bidirectional ${languageLabel(label)} propagation`],
-    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(血管|肿瘤) Mask。另一类 Mask 保留每帧原有内容。已审核帧只供对照且不会被覆盖，请取消勾选边界不准的帧。$/, (match, before, after, label) => `SAM2 propagated the ${languageLabel(label)} Mask ${before} previous frames and ${after} following frames from the current keyframe. The other Mask label keeps each frame's existing content. Reviewed frames are read-only and will not be overwritten. Unselect frames with inaccurate boundaries.`],
+    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(血管|肿瘤) Mask。另一类 Mask 保留每帧原有内容。关键帧之前的已审核帧始终受保护。需要重写向后传播结果时，请开启“允许覆盖向后已审核帧”并手动勾选。$/, (match, before, after, label) => `SAM2 propagated the ${languageLabel(label)} Mask ${before} previous frames and ${after} following frames from the current keyframe. The other Mask label keeps each frame's existing content. Reviewed frames before the keyframe always stay protected. To replace following propagation results, enable “Allow overwriting following reviewed frames” and select them manually.`],
+    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(血管|肿瘤) Mask。另一类 Mask 保留每帧原有内容。关键帧之前的已审核帧仍受保护。只有手动勾选的向后已审核帧会被重写。$/, (match, before, after, label) => `SAM2 propagated the ${languageLabel(label)} Mask ${before} previous frames and ${after} following frames from the current keyframe. The other Mask label keeps each frame's existing content. Reviewed frames before the keyframe remain protected. Only selected reviewed frames after the keyframe will be replaced.`],
     [/^通过选中 (\d+) 帧$/, "Accept $1 selected frames"],
     [/^确认保存这 (\d+) 帧 SAM2 传播预览中的 Mask 吗？(.*)$/s, (match, count, warning) => `Save the Masks from these ${count} SAM2 propagation preview frames?${englishText(warning)}`],
-    [/^\n另有 (\d+) 张已微调帧未勾选，这些修改会被丢弃。$/, "\n$1 edited frames are not selected. Their changes will be discarded."],
+    [/^另有 (\d+) 张已微调帧未勾选，这些修改会被丢弃。$/, "$1 edited frames are not selected. Their changes will be discarded."],
+    [/^其中 (\d+) 张已审核帧将被覆盖，原 Mask 会被替换。$/, "$1 reviewed frames will be overwritten and their existing Masks will be replaced."],
     [/^已保存 (\d+) 帧 SAM2 (血管|肿瘤)传播 Mask，取消勾选的帧仍保留待审核$/, (match, count, label) => `Saved SAM2 ${languageLabel(label)} Masks for ${count} frames. Unselected frames remain pending.`],
+    [/^已保存 (\d+) 帧 SAM2 (血管|肿瘤)传播 Mask，其中 (\d+) 张已审核帧已覆盖$/, (match, count, label, overwritten) => `Saved SAM2 ${languageLabel(label)} Masks for ${count} frames and overwrote ${overwritten} reviewed frames.`],
     [/^(已套索填充|已画笔填涂|已擦除)(血管|肿瘤) Mask，按 Enter 保存$/, (match, action, label) => `${ENGLISH_TEXT[action]}${languageLabel(label)} Mask. Press Enter to save.`],
   ];
   for (const [pattern, replacement] of rules) {
@@ -264,6 +274,8 @@ const state = {
     open: false,
     loading: false,
     saving: false,
+    overwriteReviewed: false,
+    keyframeIndex: null,
     items: [],
     selected: new Set(),
     selectionAnchor: null,
@@ -445,7 +457,10 @@ function metadataMarkup() {
       <div class="meta-row"><dt>文件</dt><dd data-bind="filename">—</dd></div>
       <div class="meta-row"><dt>序号</dt><dd data-bind="position">—</dd></div>
     </dl>
-    <p class="meta-picker-help">选择片段后跳到首张待审核帧，也可直接选择帧。</p>`;
+    <p class="meta-picker-help">选择片段后跳到首张待审核帧，也可直接选择帧。</p>
+    <button class="plain-button pending-jump-button" data-action="jump-unreviewed">
+      跳转到下一张未审核
+    </button>`;
 }
 
 function navigationMarkup() {
@@ -509,6 +524,13 @@ function batchReviewMarkup() {
             <button class="batch-close-button" data-action="batch-close" aria-label="关闭">×</button>
           </header>
           <p class="batch-guidance" data-bind="batch-guidance"></p>
+          <label class="batch-overwrite-option">
+            <input type="checkbox" data-control="batch-overwrite-reviewed" />
+            <span>
+              <strong>允许覆盖向后已审核帧</strong>
+              <small>关键帧之前的已审核帧始终受保护</small>
+            </span>
+          </label>
           <div class="batch-grid" data-role="batch-grid"></div>
           <p class="batch-error" data-bind="batch-error"></p>
           <footer class="batch-footer">
@@ -695,6 +717,28 @@ async function jumpToImage(index, message) {
   if (!loaded) syncImagePickers();
 }
 
+function nextUnreviewedIndex() {
+  const items = state.manifest?.items || [];
+  for (let offset = 1; offset <= items.length; offset += 1) {
+    const candidateIndex = (state.index + offset) % items.length;
+    if (!items[candidateIndex].reviewed) return candidateIndex;
+  }
+  return null;
+}
+
+async function jumpToNextUnreviewed() {
+  const targetIndex = nextUnreviewedIndex();
+  if (targetIndex === null) {
+    setStatus("所有图像均已审核", "success");
+    return;
+  }
+  if (targetIndex === state.index) {
+    setStatus("当前图像就是唯一待审核帧");
+    return;
+  }
+  await jumpToImage(targetIndex, "已跳转到下一张待审核帧");
+}
+
 function wireControls() {
   all('[data-action="language"]').forEach((button) => {
     button.addEventListener("click", toggleLanguage);
@@ -730,6 +774,9 @@ function wireControls() {
       jumpToImage(Number(select.value), "已跳转到所选帧");
     });
   });
+  all('[data-action="jump-unreviewed"]').forEach((button) =>
+    button.addEventListener("click", jumpToNextUnreviewed),
+  );
   all('[data-action="zoom-in"]').forEach((button) => button.addEventListener("click", () => setZoom(state.zoom * 1.15)));
   all('[data-action="zoom-out"]').forEach((button) => button.addEventListener("click", () => setZoom(state.zoom / 1.15)));
   all('[data-action="zoom-fit"]').forEach((button) => button.addEventListener("click", fitZoom));
@@ -751,6 +798,11 @@ function wireControls() {
   );
   all('[data-action="batch-select-all"]').forEach((button) => button.addEventListener("click", selectAllBatchItems));
   all('[data-action="batch-clear"]').forEach((button) => button.addEventListener("click", clearBatchSelection));
+  all('[data-control="batch-overwrite-reviewed"]').forEach((input) =>
+    input.addEventListener("change", () =>
+      setBatchReviewedOverwrite(input.checked),
+    ),
+  );
   all('[data-action="batch-accept"]').forEach((button) => button.addEventListener("click", acceptBatchCandidates));
   all('[data-action="batch-editor-done"]').forEach((button) => button.addEventListener("click", closeBatchEditor));
   all('[data-action="batch-editor-previous"]').forEach((button) =>
@@ -913,6 +965,17 @@ function syncUi() {
   all('[data-action="sam2-propagate"]').forEach((button) => {
     button.disabled = state.loading || state.saving || state.batch.loading || state.batch.saving;
     button.innerHTML = `SAM2 传播${labelDisplayName(state.activeLabel)} <kbd>P</kbd>`;
+  });
+  const hasPendingItem = state.manifest.items.some(
+    (manifestItem) => !manifestItem.reviewed,
+  );
+  all('[data-action="jump-unreviewed"]').forEach((button) => {
+    button.disabled =
+      state.loading ||
+      state.saving ||
+      state.batch.loading ||
+      state.batch.saving ||
+      !hasPendingItem;
   });
   syncBatchUi();
 }
@@ -1131,7 +1194,12 @@ async function loadSam2Preview(item) {
     },
     sourceImage,
     preview: renderBatchPreview(sourceImage, masks),
-    selectable: !item.reviewed,
+    selectable:
+      !item.reviewed ||
+      (
+        state.batch.overwriteReviewed &&
+        item.index > state.batch.keyframeIndex
+      ),
     edited: false,
   };
 }
@@ -1167,6 +1235,8 @@ async function openSam2Propagation() {
   state.batch.editor.open = false;
   state.batch.open = true;
   state.batch.loading = true;
+  state.batch.overwriteReviewed = false;
+  state.batch.keyframeIndex = keyframeIndex;
   state.batch.items = [];
   state.batch.selected = new Set();
   state.batch.selectionAnchor = null;
@@ -1232,11 +1302,13 @@ function renderBatchGrid() {
       const selected = state.batch.selected.has(index);
       const badges = [
         item.is_keyframe ? '<span class="batch-card-badge keyframe">关键帧</span>' : "",
-        item.reviewed ? '<span class="batch-card-badge reference">已审核参考</span>' : "",
+        item.reviewed
+          ? `<span class="batch-card-badge ${selectable ? "overwrite" : "reference"}">${selectable ? "已审核 · 可覆盖" : "已审核参考"}</span>`
+          : "",
         edited ? '<span class="batch-card-badge edited">已微调</span>' : "",
       ].join("");
       return `
-      <article class="batch-card${selected ? " selected" : ""}${selectable ? "" : " reference"}" data-batch-card="${index}">
+      <article class="batch-card${selected ? " selected" : ""}${selectable ? "" : " reference"}${item.reviewed && selectable ? " overwrite-enabled" : ""}" data-batch-card="${index}">
         <button type="button" class="batch-select-toggle" data-batch-index="${index}" aria-label="${selectable ? "选择" : "已审核参考"}帧 ${item.frame_index}" aria-pressed="${selected}"${selectable ? "" : " disabled"}>
           <span class="batch-check">✓</span>
         </button>
@@ -1282,6 +1354,32 @@ function selectableBatchIndices() {
   return state.batch.items
     .filter(({ selectable = true }) => selectable)
     .map(({ index }) => index);
+}
+
+function setBatchReviewedOverwrite(enabled) {
+  if (state.batch.loading || state.batch.saving) return;
+  state.batch.overwriteReviewed = Boolean(enabled);
+  state.batch.items.forEach((entry) => {
+    entry.selectable =
+      !entry.item.reviewed ||
+      (
+        state.batch.overwriteReviewed &&
+        entry.index > state.batch.keyframeIndex
+      );
+  });
+  if (!state.batch.overwriteReviewed) {
+    state.batch.items
+      .filter(({ item }) => item.reviewed)
+      .forEach(({ index }) => state.batch.selected.delete(index));
+    const editorItem = currentBatchEditorItem();
+    if (editorItem?.item.reviewed) {
+      cancelBatchEditorGesture(true);
+      state.batch.editor.tool = "pan";
+    }
+  }
+  state.batch.selectionAnchor = null;
+  renderBatchGrid();
+  syncBatchUi();
 }
 
 function setBatchItemSelection(index, selected) {
@@ -1827,8 +1925,14 @@ function syncBatchUi() {
   );
   setBoundText(
     "batch-guidance",
-    `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。另一类 Mask 保留每帧原有内容。已审核帧只供对照且不会被覆盖，请取消勾选边界不准的帧。`,
+    state.batch.overwriteReviewed
+      ? `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。另一类 Mask 保留每帧原有内容。关键帧之前的已审核帧仍受保护。只有手动勾选的向后已审核帧会被重写。`
+      : `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。另一类 Mask 保留每帧原有内容。关键帧之前的已审核帧始终受保护。需要重写向后传播结果时，请开启“允许覆盖向后已审核帧”并手动勾选。`,
   );
+  all('[data-control="batch-overwrite-reviewed"]').forEach((input) => {
+    input.checked = state.batch.overwriteReviewed;
+    input.disabled = state.batch.loading || state.batch.saving;
+  });
   all("[data-batch-card]").forEach((card) => {
     const selected = state.batch.selected.has(Number(card.dataset.batchCard));
     card.classList.toggle("selected", selected);
@@ -1864,6 +1968,8 @@ function closeBatchReview(force = false) {
   state.batch.requestId += 1;
   state.batch.open = false;
   state.batch.loading = false;
+  state.batch.overwriteReviewed = false;
+  state.batch.keyframeIndex = null;
   state.batch.propagatedLabel = "vessel";
   state.batch.editor.open = false;
   state.batch.editor.history = [];
@@ -1906,9 +2012,16 @@ async function acceptBatchCandidates() {
   const discardWarning = editedButUnselected
     ? `\n另有 ${editedButUnselected} 张已微调帧未勾选，这些修改会被丢弃。`
     : "";
+  const reviewedSelected = state.batch.items.filter(
+    ({ index, item }) =>
+      item.reviewed && state.batch.selected.has(index),
+  ).length;
+  const overwriteWarning = reviewedSelected
+    ? `\n其中 ${reviewedSelected} 张已审核帧将被覆盖，原 Mask 会被替换。`
+    : "";
   if (
     !window.confirm(
-      `确认保存这 ${indices.length} 帧 SAM2 传播预览中的 Mask 吗？${discardWarning}`,
+      `确认保存这 ${indices.length} 帧 SAM2 传播预览中的 Mask 吗？${overwriteWarning}${discardWarning}`,
     )
   ) return;
 
@@ -1923,6 +2036,8 @@ async function acceptBatchCandidates() {
       method: "POST",
       headers: projectHeaders(),
       body: JSON.stringify({
+        overwrite_reviewed: reviewedSelected > 0,
+        keyframe_index: state.batch.keyframeIndex,
         items: selectedItems.map(({ index, masks }) => ({
           index,
           vessel: exportMaskDataUrl(masks.vessel),
@@ -1937,12 +2052,17 @@ async function acceptBatchCandidates() {
     });
     state.manifest.processed = result.processed;
     const completedLabel = state.batch.propagatedLabel;
+    const lastSavedIndex = Number.isInteger(result.last_saved_index)
+      ? result.last_saved_index
+      : indices[indices.length - 1];
     state.batch.saving = false;
     closeBatchReview(true);
     await loadItem(
-      result.next_index,
+      lastSavedIndex,
       true,
-      `已保存 ${result.saved_count} 帧 SAM2 ${labelDisplayName(completedLabel)}传播 Mask，取消勾选的帧仍保留待审核`,
+      result.overwritten_count
+        ? `已保存 ${result.saved_count} 帧 SAM2 ${labelDisplayName(completedLabel)}传播 Mask，其中 ${result.overwritten_count} 张已审核帧已覆盖`
+        : `已保存 ${result.saved_count} 帧 SAM2 ${labelDisplayName(completedLabel)}传播 Mask，取消勾选的帧仍保留待审核`,
     );
   } catch (error) {
     state.batch.saving = false;

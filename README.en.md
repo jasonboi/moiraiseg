@@ -246,7 +246,7 @@ Do not edit `project.json`, `reviewer_state.json`, or the project ID by hand. Da
 
 ## Annotation controls
 
-Use the selectors under **Current image** to jump directly to a clip or frame. Selecting a clip opens its first pending frame, while selecting a frame opens that image directly. DataSeg still asks for confirmation before leaving unsaved Mask changes.
+Use the selectors under **Current image** to jump directly to a clip or frame. Selecting a clip opens its first pending frame, while selecting a frame opens that image directly. **Jump to next pending frame** searches forward from the current position and wraps to the beginning after the last frame. DataSeg still asks for confirmation before leaving unsaved Mask changes.
 
 | Action | Shortcut |
 | --- | --- |
@@ -262,7 +262,7 @@ Use the selectors under **Current image** to jump directly to a clip or frame. S
 | Propagate from the current SAM2 keyframe | `P` |
 | Clear the current frame's Masks | `X` |
 
-SAM2 propagates the selected Mask label. The other label keeps its existing content on each frame. Reviewed frames are shown as references and are never overwritten.
+SAM2 propagates the selected Mask label, while the other label keeps its existing content on each frame. Reviewed frames before the current keyframe always stay protected and cannot be overwritten. To replace reviewed results after the keyframe, enable **Allow overwriting following reviewed frames** in the propagation preview and manually select the frames to overwrite. The confirmation shows how many reviewed frames will be replaced. Unselected reviewed results remain unchanged. After accepting a batch, the review page stays on the last frame saved in that batch.
 
 In the propagation preview, Shift-click a checkbox to select or clear a frame range, or hold the pointer and drag across checkboxes to update several frames. In the enlarged editor, press `X` to clear every Mask on the current frame and `Ctrl+Z` to undo.
 

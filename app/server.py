@@ -484,9 +484,16 @@ class ReviewerStore:
                 "next_index": next_index,
             }
 
-    def save_batch(self, entries: list[dict]) -> dict:
+    def save_batch(
+        self,
+        entries: list[dict],
+        overwrite_reviewed: bool = False,
+        keyframe_index: int | None = None,
+    ) -> dict:
         if not isinstance(entries, list) or not 1 <= len(entries) <= 64:
             raise ValueError("Select between 1 and 64 frames")
+        if not isinstance(overwrite_reviewed, bool):
+            raise ValueError("overwrite_reviewed must be a boolean")
         if any(not isinstance(entry, dict) for entry in entries):
             raise ValueError("Batch entries must be objects")
         try:
@@ -505,6 +512,19 @@ class ReviewerStore:
         items = [self.item(index) for index in selected_indices]
         if len({item["clip"] for item in items}) != 1:
             raise ValueError("Batch review must stay within one capture clip")
+        if overwrite_reviewed:
+            if (
+                not isinstance(keyframe_index, int)
+                or isinstance(keyframe_index, bool)
+            ):
+                raise ValueError(
+                    "keyframe_index is required when overwriting reviewed frames"
+                )
+            keyframe = self.item(keyframe_index)
+            if keyframe["clip"] != items[0]["clip"]:
+                raise ValueError(
+                    "Batch review and keyframe must stay within one capture clip"
+                )
 
         prepared: list[tuple[int, dict, dict[str, Image.Image]]] = []
         for index, item in zip(selected_indices, items):
@@ -530,15 +550,34 @@ class ReviewerStore:
             already_reviewed = [
                 item["id"] for item in items if item["id"] in reviewed
             ]
-            if already_reviewed:
+            if already_reviewed and not overwrite_reviewed:
                 raise ValueError(
                     f"Batch frame is already reviewed: {already_reviewed[0]}"
                 )
+            protected_reviewed = [
+                item["id"]
+                for index, item in zip(selected_indices, items)
+                if item["id"] in reviewed
+                and index <= keyframe_index
+            ]
+            if protected_reviewed:
+                raise ValueError(
+                    "Reviewed frames at or before the keyframe cannot be "
+                    f"overwritten: {protected_reviewed[0]}"
+                )
 
             saved_at = utc_now()
+            overwritten_indices: list[int] = []
             for index, item, masks in prepared:
+                was_reviewed = item["id"] in reviewed
                 self._write_item_files(index, item, masks)
-                self._mark_reviewed(item, saved_at, "batch_review")
+                self._mark_reviewed(
+                    item,
+                    saved_at,
+                    "batch_overwrite" if was_reviewed else "batch_review",
+                )
+                if was_reviewed:
+                    overwritten_indices.append(index)
             self._commit_review_state()
 
             processed = len(self.state["reviewed"])
@@ -547,9 +586,12 @@ class ReviewerStore:
                 "saved": True,
                 "saved_indices": selected_indices,
                 "saved_count": len(selected_indices),
+                "overwritten_indices": overwritten_indices,
+                "overwritten_count": len(overwritten_indices),
                 "processed": processed,
                 "total": len(self.items),
                 "next_index": next_index,
+                "last_saved_index": selected_indices[-1],
                 "clip": items[0]["clip"],
             }
 
@@ -761,7 +803,14 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     raise ValueError("Invalid request size")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
                 self._send_json(
-                    self.store.save_batch(payload["items"])
+                    self.store.save_batch(
+                        payload["items"],
+                        overwrite_reviewed=payload.get(
+                            "overwrite_reviewed",
+                            False,
+                        ),
+                        keyframe_index=payload.get("keyframe_index"),
+                    )
                 )
                 return
             if len(parts) == 4 and parts[:2] == ["api", "item"]:
