@@ -20,6 +20,8 @@ from PIL import Image
 FRAME_PATTERN = re.compile(r"(?:^|[_-])(\d+)(?:[_-]|\.)")
 INTERNAL_DIR_NAME = ".dataseg"
 PROJECT_SCHEMA_VERSION = 2
+CONTENT_SIGNATURE_VERSION = 1
+HASH_CHUNK_SIZE = 1024 * 1024
 
 
 def utc_now() -> str:
@@ -92,7 +94,7 @@ def atomic_save_png(path: Path, image: Image.Image) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def read_json(path: Path) -> dict[str, Any]:
+def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
@@ -157,6 +159,38 @@ def clip_signature(frames: list[Path]) -> str:
     return digest.hexdigest().upper()
 
 
+def clip_content_signature(clip_root: Path, frames: list[Path]) -> str:
+    """Hash portable clip contents without absolute paths or timestamps."""
+    digest = hashlib.sha256()
+    paths = [clip_root / "metadata.csv", *frames]
+    for path in paths:
+        if not path.is_file():
+            continue
+        relative = path.relative_to(clip_root).as_posix().encode("utf-8")
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        digest.update(path.stat().st_size.to_bytes(8, "big"))
+        with path.open("rb") as handle:
+            while chunk := handle.read(HASH_CHUNK_SIZE):
+                digest.update(chunk)
+    return digest.hexdigest().upper()
+
+
+def files_have_same_content(left: Path, right: Path) -> bool:
+    if not left.is_file() or not right.is_file():
+        return False
+    if left.stat().st_size != right.stat().st_size:
+        return False
+    with left.open("rb") as left_handle, right.open("rb") as right_handle:
+        while True:
+            left_chunk = left_handle.read(HASH_CHUNK_SIZE)
+            right_chunk = right_handle.read(HASH_CHUNK_SIZE)
+            if left_chunk != right_chunk:
+                return False
+            if not left_chunk:
+                return True
+
+
 def reviewed_count(output_root: Path) -> int:
     state_path = output_root / INTERNAL_DIR_NAME / "reviewer_state.json"
     if not state_path.exists():
@@ -164,6 +198,117 @@ def reviewed_count(output_root: Path) -> int:
     state = read_json(state_path)
     reviewed = state.get("reviewed", {})
     return len(reviewed) if isinstance(reviewed, dict) else 0
+
+
+def project_has_content_signatures(project: dict[str, Any]) -> bool:
+    clips = project.get("clips", {})
+    return (
+        project.get("content_signature_version") == CONTENT_SIGNATURE_VERSION
+        and isinstance(clips, dict)
+        and bool(clips)
+        and all(
+            isinstance(summary, dict)
+            and bool(str(summary.get("content_signature", "")).strip())
+            for summary in clips.values()
+        )
+    )
+
+
+def current_frame_identity(clip_root: Path) -> list[tuple[int, str]]:
+    metadata = load_metadata(clip_root / "metadata.csv")
+    frames = sorted((clip_root / "frames").glob("*.png"), key=lambda path: path.name)
+    indexed = sorted(
+        (
+            (frame_index(path, position, metadata), path.name)
+            for position, path in enumerate(frames)
+        ),
+        key=lambda pair: (pair[0], pair[1]),
+    )
+    if len(indexed) != len({index for index, _ in indexed}):
+        raise RuntimeError(f"{clip_root.name} contains duplicate frame indices")
+    return indexed
+
+
+def validate_legacy_project_rebind(
+    previous: dict[str, Any],
+    raw_root: Path,
+    output_root: Path,
+) -> None:
+    """Verify an old path-bound project before adding portable hashes."""
+    internal_root = output_root / INTERNAL_DIR_NAME
+    clips = {clip.name: clip for clip in discover_clips(raw_root)}
+    previous_clips = previous.get("clips", {})
+    if set(clips) != set(previous_clips):
+        raise RuntimeError(
+            "Cannot migrate the project because the raw clip set changed"
+        )
+
+    known_frames: set[str] = set()
+    for clip_name, clip_root in clips.items():
+        frame_map_path = (
+            internal_root / "prepared" / clip_name / "frame_map.json"
+        )
+        if not frame_map_path.is_file():
+            raise RuntimeError(
+                "Cannot migrate the project because prepared frame metadata "
+                f"is missing for {clip_name}"
+            )
+        previous_frames = [
+            (int(entry["frame_index"]), str(entry["source_file"]))
+            for entry in read_json(frame_map_path)
+        ]
+        current_frames = current_frame_identity(clip_root)
+        if previous_frames != current_frames:
+            raise RuntimeError(
+                "Cannot migrate the project because the raw frame layout "
+                f"changed in {clip_name}"
+            )
+        known_frames.update(
+            f"{clip_name}/{source_file}"
+            for _, source_file in current_frames
+        )
+
+    state_path = internal_root / "reviewer_state.json"
+    if not state_path.is_file():
+        return
+    state = read_json(state_path)
+    if state.get("project_id") != previous.get("project_id"):
+        raise RuntimeError(
+            "Cannot migrate because reviewer state belongs to another project"
+        )
+    reviewed = state.get("reviewed", {})
+    if not isinstance(reviewed, dict):
+        raise RuntimeError(
+            "Cannot migrate because reviewer state is invalid"
+        )
+
+    for item_id in reviewed:
+        if item_id not in known_frames or "/" not in item_id:
+            raise RuntimeError(
+                "Cannot migrate because reviewed frame metadata changed: "
+                f"{item_id}"
+            )
+        clip_name, source_file = item_id.split("/", 1)
+        source_image = clips[clip_name] / "frames" / source_file
+        saved_image = output_root / "images" / clip_name / source_file
+        if not files_have_same_content(source_image, saved_image):
+            raise RuntimeError(
+                "Cannot migrate because reviewed source images do not match "
+                f"the copied output: {item_id}"
+            )
+        for label in ("vessel", "lesion"):
+            mask = (
+                output_root
+                / "masks"
+                / label
+                / clip_name
+                / source_file
+            )
+            if not mask.is_file():
+                raise RuntimeError(
+                    "Cannot migrate because reviewed output Masks are "
+                    f"incomplete: {item_id}"
+                )
 
 
 def ensure_project_compatible(
@@ -193,27 +338,64 @@ def ensure_project_compatible(
         )
     if not str(previous.get("project_id", "")).strip():
         raise RuntimeError("The DataSeg project is missing project_id")
-    if Path(previous["raw_data_dir"]).resolve() != raw_root:
-        raise RuntimeError(
-            "The selected output folder already belongs to a different raw dataset"
-        )
+    previous_raw_value = str(previous.get("raw_data_dir", "")).strip()
+    if not previous_raw_value:
+        raise RuntimeError("The DataSeg project is missing raw_data_dir")
+    path_changed = Path(previous_raw_value).expanduser().resolve() != raw_root
     count = reviewed_count(output_root)
     if count and bool(previous.get("vessel_only")) != vessel_only:
         raise RuntimeError(
             "Label mode cannot change after review has started in this output folder"
         )
     previous_clips = previous.get("clips", {})
-    changed = {
+    structure_changed = {
+        name
+        for name in set(previous_clips) | set(clip_summaries)
+        if previous_clips.get(name, {}).get("frame_count")
+        != clip_summaries.get(name, {}).get("frame_count")
+    }
+    if count and structure_changed:
+        raise RuntimeError(
+            "Raw frame layout changed after review started. Use a new output "
+            f"folder. Changed clips: {sorted(structure_changed)}"
+        )
+
+    legacy_changed = {
         name
         for name in set(previous_clips) | set(clip_summaries)
         if previous_clips.get(name, {}).get("signature")
         != clip_summaries.get(name, {}).get("signature")
     }
-    if count and changed:
+    has_previous_content = project_has_content_signatures(previous)
+    has_current_content = all(
+        str(summary.get("content_signature", "")).strip()
+        for summary in clip_summaries.values()
+    )
+    if (
+        has_previous_content
+        and not has_current_content
+        and count
+        and (path_changed or legacy_changed)
+    ):
         raise RuntimeError(
-            "Raw frames changed after review started. Use a new output folder. "
-            f"Changed clips: {sorted(changed)}"
+            "The raw dataset moved and its file contents could not be verified"
         )
+    if has_previous_content and has_current_content:
+        content_changed = {
+            name
+            for name in set(previous_clips) | set(clip_summaries)
+            if previous_clips.get(name, {}).get("content_signature")
+            != clip_summaries.get(name, {}).get("content_signature")
+        }
+        if count and content_changed:
+            raise RuntimeError(
+                "Raw frame contents changed after review started. Use a new "
+                f"output folder. Changed clips: {sorted(content_changed)}"
+            )
+    elif not has_previous_content and count and (
+        path_changed or legacy_changed
+    ):
+        validate_legacy_project_rebind(previous, raw_root, output_root)
     return previous
 
 
@@ -221,6 +403,7 @@ def prepare_clip(
     clip_root: Path,
     prepared_root: Path,
     candidate_root: Path,
+    content_signature: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     metadata = load_metadata(clip_root / "metadata.csv")
     frames = sorted((clip_root / "frames").glob("*.png"), key=lambda path: path.name)
@@ -284,6 +467,7 @@ def prepare_clip(
                 key=lambda path: path.name,
             )
         ),
+        "content_signature": content_signature,
     }
     return frame_map, summary
 
@@ -338,22 +522,35 @@ def main() -> None:
     project_path = internal_root / "project.json"
 
     preliminary: dict[str, dict[str, Any]] = {}
+    frames_by_clip: dict[str, list[Path]] = {}
     for clip in clips:
         metadata = load_metadata(clip / "metadata.csv")
         frames = sorted((clip / "frames").glob("*.png"), key=lambda path: path.name)
         if not frames:
             raise RuntimeError(f"No PNG frames found under {clip / 'frames'}")
+        frames_by_clip[clip.name] = frames
         preliminary[clip.name] = {
             "frame_count": len(frames),
             "signature": clip_signature(frames),
             "metadata_rows": len(metadata),
         }
+
+    for clip in clips:
+        preliminary[clip.name]["content_signature"] = clip_content_signature(
+            clip,
+            frames_by_clip[clip.name],
+        )
+
     previous_project = ensure_project_compatible(
         project_path,
         raw_root,
         vessel_only,
         preliminary,
         output_root,
+    )
+    raw_path_migrated = bool(previous_project) and (
+        Path(str(previous_project["raw_data_dir"])).expanduser().resolve()
+        != raw_root
     )
     project_id = (
         str(previous_project["project_id"])
@@ -368,6 +565,7 @@ def main() -> None:
 
     annotation_index: dict[str, Any] = {
         "schema_version": PROJECT_SCHEMA_VERSION,
+        "content_signature_version": CONTENT_SIGNATURE_VERSION,
         "project_id": project_id,
         "batch_name": raw_root.name,
         "strategy": "annotation_export_only",
@@ -383,6 +581,7 @@ def main() -> None:
             clip,
             prepared_root,
             candidate_root,
+            str(preliminary[clip.name]["content_signature"]),
         )
         project_clips[clip.name] = summary
         annotation_index["clips"][clip.name] = {
@@ -421,6 +620,7 @@ def main() -> None:
         project_path,
         {
             "schema_version": PROJECT_SCHEMA_VERSION,
+            "content_signature_version": CONTENT_SIGNATURE_VERSION,
             "tool": "dataseg",
             "project_id": project_id,
             "raw_data_dir": str(raw_root),
@@ -440,6 +640,7 @@ def main() -> None:
                 "frames": total,
                 "reviewed": count,
                 "vessel_only": vessel_only,
+                "raw_path_migrated": raw_path_migrated,
             },
             ensure_ascii=False,
             indent=2,

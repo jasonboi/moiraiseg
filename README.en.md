@@ -14,6 +14,7 @@ Chinese is the default language. Click `English` or `中文` in the upper-right 
 - Vessel-only and vessel-plus-lesion annotation modes
 - Automatic CUDA or CPU selection
 - Project identity, review progress, and write access isolated by output folder
+- Cross-device review continuation verified by file-content hashes
 - Tk desktop launcher, Windows double-click launcher, and CLI
 - Chinese and English interfaces
 
@@ -226,9 +227,22 @@ reviewed-data/
    └─ candidate_labels/
 ```
 
-`.dataseg/reviewer_state.json` stores review progress. A project ID is bound to the output directory, so changing the output directory creates an independent project.
+`.dataseg/reviewer_state.json` stores review progress. Project metadata and progress travel with the complete output directory. Selecting a new empty directory creates an independent project. Copying an existing output directory preserves its project ID and review progress.
 
 DataSeg does not create train, validation, or test splits. Split by subject before splitting by complete acquisition clip. Do not randomly split consecutive frames or place one subject in multiple sets.
+
+## Continue reviewing on another device
+
+Copy both of these items to the other computer:
+
+1. The complete source directory, including each clip's `frames/` directory and any existing `metadata.csv`.
+2. The complete output directory, including the hidden `.dataseg/` directory, `images/`, and `masks/`.
+
+Select the copied source and output directories in the launcher, then click “Save and start.” DataSeg verifies the PNG contents, file names, and `metadata.csv` in each clip with SHA-256. Absolute paths and file modification times are excluded, so a different drive letter, user name, or parent directory does not prevent recognition.
+
+Older projects do not yet contain content hashes. During their first migration, DataSeg checks the clip and frame index and compares every reviewed source image with its saved output copy. After verification, it records the content hashes and the new device path while preserving the project ID, review state, and Masks. The first migration reads every source file and may take longer than a normal start.
+
+Do not edit `project.json`, `reviewer_state.json`, or the project ID by hand. DataSeg stops the migration when source contents, file names, clip structure, or reviewed outputs differ, preventing progress from being attached to the wrong dataset.
 
 ## Annotation controls
 
