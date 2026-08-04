@@ -22,31 +22,20 @@ from tkinter import filedialog, messagebox, ttk
 TOOL_ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = TOOL_ROOT / "config.json"
 CLI_PATH = TOOL_ROOT / "dataseg.py"
-DEFAULT_ENVIRONMENT = "usdia-seg"
 DEFAULT_CONFIG = {
     "schema_version": 1,
     "raw_data_dir": "",
     "output_dir": "",
     "sam2_before_frames": 4,
     "sam2_after_frames": 16,
-    "vessel_only": True,
     "sam2_device": "auto",
-    "conda_env": DEFAULT_ENVIRONMENT,
+    "python_executable": str(Path(sys.executable).resolve()),
     "port": 8767,
 }
-MODE_TO_VALUE = {
-    "仅血管": "vessel",
-    "血管与肿瘤": "both",
-}
-ENGLISH_MODE_TO_VALUE = {
-    "Vessel only": "vessel",
-    "Vessel and lesion": "both",
-}
-VALUE_TO_MODE = {value: label for label, value in MODE_TO_VALUE.items()}
 GUI_ENGLISH = {
     "English": "中文",
     "DataSeg 启动器": "DataSeg Launcher",
-    "血管与肿瘤数据标定启动器": "Vessel and Lesion Annotation Launcher",
+    "超声连续帧数据标定启动器": "Ultrasound Sequence Annotation Launcher",
     "在这里配置项目并管理本地服务，标定操作仍在浏览器中完成。": (
         "Configure the project and local service here. Annotation opens "
         "in your browser."
@@ -57,10 +46,9 @@ GUI_ENGLISH = {
     "处理后数据目录": "Output directory",
     "SAM2 向前": "SAM2 before",
     "SAM2 向后": "SAM2 after",
-    "标注模式": "Annotation mode",
     "运行设备": "Device",
     "本地端口": "Local port",
-    "Conda 环境": "Conda environment",
+    "当前环境": "Current environment",
     "检查环境": "Check environment",
     "保存配置": "Save settings",
     "保存并启动": "Save and start",
@@ -93,8 +81,8 @@ GUI_ENGLISH = {
         "Choose Yes to stop the service and exit.\n"
         "Choose No to leave the service running and exit."
     ),
-    "请检查传播帧数、标注模式和端口": (
-        "Check the propagation frame counts, annotation mode, and port."
+    "请检查传播帧数和端口": (
+        "Check the propagation frame counts and port."
     ),
     "处理后目录不能与原始目录相同，也不能放在其内部": (
         "The output directory must be separate from the source directory."
@@ -105,13 +93,9 @@ GUI_ENGLISH = {
     "SAM2 向后传播帧数必须在 0 到 32 之间": (
         "The SAM2 following-frame range must be between 0 and 32."
     ),
-    "标注模式无效": "The annotation mode is invalid.",
     "SAM2 设备无效": "The SAM2 device is invalid.",
     "端口必须在 1024 到 65535 之间": (
         "The port must be between 1024 and 65535."
-    ),
-    "Conda 环境名不能为空，也不能包含空格": (
-        "The Conda environment name cannot be empty or contain spaces."
     ),
 }
 UI_FONT_FAMILY = "Microsoft YaHei UI"
@@ -130,7 +114,7 @@ UI_COLORS = {
     "primary": "#4d9cf6",
     "primary_active": "#2f7fdc",
     "primary_soft": "#142d4a",
-    "vessel": "#35c8d7",
+    "accent": "#35c8d7",
     "success": "#61d17a",
     "success_soft": "#173522",
     "warning": "#f0aa4f",
@@ -189,6 +173,42 @@ def command_environment() -> dict[str, str]:
     return environment
 
 
+def current_python_executable() -> str:
+    return str(Path(sys.executable).resolve())
+
+
+def current_environment_display(
+    executable: str | Path | None = None,
+    prefix: str | Path | None = None,
+    environment: dict[str, str] | None = None,
+) -> str:
+    executable_path = Path(executable or sys.executable).resolve()
+    prefix_path = Path(prefix or sys.prefix).resolve()
+    current_environment = os.environ if environment is None else environment
+
+    conda_name = current_environment.get("CONDA_DEFAULT_ENV", "").strip()
+    conda_prefix = current_environment.get("CONDA_PREFIX", "").strip()
+    prefix_matches_conda = bool(conda_prefix) and os.path.normcase(
+        str(Path(conda_prefix).resolve())
+    ) == os.path.normcase(str(prefix_path))
+    if (prefix_path / "conda-meta").is_dir() or prefix_matches_conda:
+        environment_name = (
+            conda_name if prefix_matches_conda and conda_name else prefix_path.name
+        )
+        return f"Conda · {environment_name}"
+
+    virtual_environment = current_environment.get("VIRTUAL_ENV", "").strip()
+    prefix_matches_virtual_environment = bool(virtual_environment) and (
+        os.path.normcase(str(Path(virtual_environment).resolve()))
+        == os.path.normcase(str(prefix_path))
+    )
+    if prefix_matches_virtual_environment:
+        return f"venv · {Path(virtual_environment).name}"
+    if (prefix_path / "pyvenv.cfg").is_file():
+        return f"venv · {prefix_path.name}"
+    return str(executable_path)
+
+
 def run_cli_command(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -212,10 +232,9 @@ class LauncherSettings:
     output_dir: str
     sam2_before_frames: int
     sam2_after_frames: int
-    mode: str
     device: str
     port: int
-    conda_env: str
+    python_executable: str
 
 
 def read_config() -> dict:
@@ -225,21 +244,14 @@ def read_config() -> dict:
 
 
 def settings_from_config(config: dict) -> LauncherSettings:
-    active_environment = os.environ.get("CONDA_DEFAULT_ENV", "").strip()
-    configured_environment = str(config.get("conda_env", "")).strip()
     return LauncherSettings(
         raw_data_dir=str(config.get("raw_data_dir", "")),
         output_dir=str(config.get("output_dir", "")),
         sam2_before_frames=int(config.get("sam2_before_frames", 4)),
         sam2_after_frames=int(config.get("sam2_after_frames", 16)),
-        mode="vessel" if config.get("vessel_only") else "both",
         device=str(config.get("sam2_device", "auto")),
         port=int(config.get("port", 8767)),
-        conda_env=(
-            configured_environment
-            or active_environment
-            or DEFAULT_ENVIRONMENT
-        ),
+        python_executable=current_python_executable(),
     )
 
 
@@ -254,17 +266,12 @@ def validate_settings(settings: LauncherSettings) -> None:
         raise ValueError("SAM2 向前传播帧数必须在 0 到 32 之间")
     if not 0 <= settings.sam2_after_frames <= 32:
         raise ValueError("SAM2 向后传播帧数必须在 0 到 32 之间")
-    if settings.mode not in {"vessel", "both"}:
-        raise ValueError("标注模式无效")
     if settings.device not in {"auto", "cuda", "cpu"}:
         raise ValueError("SAM2 设备无效")
     if not 1024 <= settings.port <= 65535:
         raise ValueError("端口必须在 1024 到 65535 之间")
-    if (
-        not settings.conda_env
-        or any(character.isspace() for character in settings.conda_env)
-    ):
-        raise ValueError("Conda 环境名不能为空，也不能包含空格")
+    if not settings.python_executable:
+        raise ValueError("Python 解释器路径不能为空")
 
 
 def configure_command(settings: LauncherSettings) -> list[str]:
@@ -281,14 +288,12 @@ def configure_command(settings: LauncherSettings) -> list[str]:
         str(settings.sam2_before_frames),
         "--after",
         str(settings.sam2_after_frames),
-        "--mode",
-        settings.mode,
         "--device",
         settings.device,
         "--port",
         str(settings.port),
-        "--conda-env",
-        settings.conda_env,
+        "--python-executable",
+        settings.python_executable,
     ]
 
 
@@ -340,12 +345,11 @@ class DataSegGui:
         self.output_var = tk.StringVar(value=settings.output_dir)
         self.before_var = tk.StringVar(value=str(settings.sam2_before_frames))
         self.after_var = tk.StringVar(value=str(settings.sam2_after_frames))
-        self.mode_var = tk.StringVar(
-            value=VALUE_TO_MODE.get(settings.mode, "血管与肿瘤")
-        )
         self.device_var = tk.StringVar(value=settings.device)
         self.port_var = tk.StringVar(value=str(settings.port))
-        self.conda_var = tk.StringVar(value=settings.conda_env)
+        self.environment_var = tk.StringVar(
+            value=current_environment_display()
+        )
 
         self._configure_window()
         self._build_ui()
@@ -626,12 +630,12 @@ class DataSegGui:
             header,
             text="DataSeg",
             background=UI_COLORS["canvas"],
-            foreground=UI_COLORS["vessel"],
+            foreground=UI_COLORS["accent"],
             font=(UI_FONT_FAMILY, 12, "bold"),
         ).pack(anchor="w", padx=28, pady=(18, 0))
         tk.Label(
             header,
-            text="血管与肿瘤数据标定启动器",
+            text="超声连续帧数据标定启动器",
             background=UI_COLORS["canvas"],
             foreground=UI_COLORS["ink"],
             font=(UI_FONT_FAMILY, 19, "bold"),
@@ -728,34 +732,26 @@ class DataSegGui:
             sticky="ew",
             pady=(12, 0),
         )
-        for column in range(6):
+        for column in range(5):
             options.columnconfigure(column, weight=1)
 
         self._small_field(options, 0, "SAM2 向前", self.before_var, "spin")
         self._small_field(options, 1, "SAM2 向后", self.after_var, "spin")
-        self.mode_combo = self._small_field(
-            options,
-            2,
-            "标注模式",
-            self.mode_var,
-            "combo",
-            tuple(MODE_TO_VALUE),
-        )
         self._small_field(
             options,
-            3,
+            2,
             "运行设备",
             self.device_var,
             "combo",
             ("auto", "cuda", "cpu"),
         )
-        self._small_field(options, 4, "本地端口", self.port_var, "entry")
-        self._small_field(
+        self._small_field(options, 3, "本地端口", self.port_var, "entry")
+        self.environment_entry = self._small_field(
             options,
-            5,
-            "Conda 环境",
-            self.conda_var,
-            "entry",
+            4,
+            "当前环境",
+            self.environment_var,
+            "readonly_entry",
         )
 
         toolbar = ttk.Frame(body)
@@ -841,7 +837,7 @@ class DataSegGui:
         self.log_text.configure(yscrollcommand=scrollbar.set)
         self.log_text.tag_configure(
             "section",
-            foreground=UI_COLORS["vessel"],
+            foreground=UI_COLORS["accent"],
             font=(UI_FONT_FAMILY, LOG_FONT_SIZE, "bold"),
             spacing1=10,
             spacing3=5,
@@ -932,6 +928,13 @@ class DataSegGui:
                 state="readonly",
                 width=12,
             )
+        elif kind == "readonly_entry":
+            widget = ttk.Entry(
+                field,
+                textvariable=variable,
+                width=13,
+                state="readonly",
+            )
         else:
             widget = ttk.Entry(
                 field,
@@ -945,11 +948,6 @@ class DataSegGui:
         if self.language == "en":
             return translate_gui_text(value)
         return value
-
-    def _mode_mapping(self) -> dict[str, str]:
-        if self.language == "en":
-            return ENGLISH_MODE_TO_VALUE
-        return MODE_TO_VALUE
 
     def _apply_widget_language(self) -> None:
         def visit(widget: tk.Misc) -> None:
@@ -971,17 +969,7 @@ class DataSegGui:
         visit(self.root)
 
     def toggle_language(self) -> None:
-        current_mode = self._mode_mapping().get(
-            self.mode_var.get(),
-            "both",
-        )
         self.language = "en" if self.language == "zh-CN" else "zh-CN"
-        mode_mapping = self._mode_mapping()
-        value_to_mode = {
-            value: label for label, value in mode_mapping.items()
-        }
-        self.mode_var.set(value_to_mode[current_mode])
-        self.mode_combo.configure(values=tuple(mode_mapping))
         self._apply_widget_language()
         self.refresh_status()
 
@@ -1019,13 +1007,12 @@ class DataSegGui:
                 output_dir=self.output_var.get().strip(),
                 sam2_before_frames=int(self.before_var.get()),
                 sam2_after_frames=int(self.after_var.get()),
-                mode=self._mode_mapping()[self.mode_var.get()],
                 device=self.device_var.get(),
                 port=int(self.port_var.get()),
-                conda_env=self.conda_var.get().strip(),
+                python_executable=current_python_executable(),
             )
-        except (KeyError, ValueError) as error:
-            raise ValueError("请检查传播帧数、标注模式和端口") from error
+        except ValueError as error:
+            raise ValueError("请检查传播帧数和端口") from error
         validate_settings(settings)
         return settings
 
@@ -1340,8 +1327,9 @@ def main() -> int:
         startup_message = (
             "无法启动 Python 图形界面。\n\n"
             f"{error}\n\n"
-            "请在当前 Conda 环境安装 Tcl/Tk：\n"
-            "conda install -c conda-forge --force-reinstall tk"
+            "请在启动 DataSeg 的 Python 环境安装或修复 Tcl/Tk：\n"
+            "Conda: conda install -c conda-forge --force-reinstall tk\n"
+            ".venv: 请安装包含 Tcl/Tk 的 Python 后重新创建虚拟环境"
         )
         if args.smoke_test:
             print(startup_message, file=sys.stderr)
@@ -1356,13 +1344,14 @@ def main() -> int:
             app.output_var,
             app.before_var,
             app.after_var,
-            app.mode_var,
             app.device_var,
             app.port_var,
-            app.conda_var,
+            app.environment_var,
         )
         if any(variable is None for variable in required):
             raise RuntimeError("GUI fields are incomplete")
+        if str(app.environment_entry.cget("state")) != "readonly":
+            raise RuntimeError("Current environment field must be read-only")
         log_font = app.log_text.cget("font")
         log_font_family = str(
             root.tk.call("font", "actual", log_font, "-family")

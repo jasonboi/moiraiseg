@@ -69,8 +69,6 @@ def main() -> None:
         "--shutdown-token",
         os.environ.get("DATASEG_SHUTDOWN_TOKEN", ""),
     ]
-    if bool(config.get("vessel_only", False)):
-        sys.argv.append("--vessel-only")
     runpy.run_path(str(server_path), run_name="__main__")
 
 

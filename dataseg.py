@@ -33,9 +33,8 @@ DEFAULT_CONFIG = {
     "output_dir": "",
     "sam2_before_frames": 4,
     "sam2_after_frames": 16,
-    "vessel_only": True,
     "sam2_device": "auto",
-    "conda_env": "usdia-seg",
+    "python_executable": str(Path(sys.executable).resolve()),
     "port": 8767,
 }
 REQUIRED_IMPORTS = (
@@ -107,10 +106,6 @@ def service_matches_config(
             return False
         if normalized_path(response["output_dir"]) != normalized_path(
             config["output_dir"]
-        ):
-            return False
-        if bool(response.get("vessel_only")) != bool(
-            config.get("vessel_only", False)
         ):
             return False
         if int(response.get("sam2_before_frames", -1)) != int(
@@ -197,7 +192,7 @@ def doctor(*, quiet: bool = False) -> bool:
     except Exception as error:
         notices.append(
             "Tcl/Tk 运行库不可用："
-            f"{error}。请运行 conda install -c conda-forge tk"
+            f"{error}。请为当前 Python 环境安装 Tcl/Tk"
         )
 
     required_paths = (
@@ -250,9 +245,7 @@ def doctor(*, quiet: bool = False) -> bool:
         for notice in notices:
             print(f"- 警告：{notice}", file=sys.stderr)
         print(
-            "\n请在 DataSeg 目录中运行："
-            "\n  conda env create -f environment.yml"
-            "\n  conda activate usdia-seg"
+            "\n请激活要运行 DataSeg 的 Python 环境，然后在项目目录中运行："
             "\n  python -m pip install -r requirements.txt",
             file=sys.stderr,
         )
@@ -330,14 +323,6 @@ def configure(args: argparse.Namespace) -> None:
     if not 0 <= before <= 32 or not 0 <= after <= 32:
         raise ValueError("SAM2 传播帧数必须在 0 到 32 之间")
 
-    default_mode = "vessel" if config.get("vessel_only") else "both"
-    mode = args.mode or prompt_text(
-        "标注模式（vessel=仅血管，both=血管与肿瘤）",
-        default_mode,
-    ).lower()
-    if mode not in {"vessel", "both"}:
-        raise ValueError("标注模式必须是 vessel 或 both")
-
     device = args.device or prompt_text(
         "SAM2 设备（auto/cuda/cpu）",
         str(config.get("sam2_device", "auto")),
@@ -352,16 +337,12 @@ def configure(args: argparse.Namespace) -> None:
     if not 1024 <= port <= 65535:
         raise ValueError("端口必须在 1024 到 65535 之间")
 
-    conda_env = args.conda_env or str(
-        config.get("conda_env", "usdia-seg")
+    python_value = str(
+        getattr(args, "python_executable", None) or sys.executable
     ).strip()
-    if args.conda_env is None and args.raw is None and args.output is None:
-        conda_env = prompt_text(
-            "Conda 环境名（供 Windows 快捷入口使用）",
-            conda_env,
-        )
-    if not conda_env or any(character.isspace() for character in conda_env):
-        raise ValueError("Conda 环境名不能为空，也不能包含空格")
+    python_executable = Path(python_value).expanduser().resolve()
+    if not python_executable.is_file():
+        raise ValueError(f"Python 解释器不存在：{python_executable}")
 
     updated = {
         "schema_version": 1,
@@ -369,9 +350,8 @@ def configure(args: argparse.Namespace) -> None:
         "output_dir": str(output_root),
         "sam2_before_frames": before,
         "sam2_after_frames": after,
-        "vessel_only": mode == "vessel",
         "sam2_device": device,
-        "conda_env": conda_env,
+        "python_executable": str(python_executable),
         "port": port,
     }
     atomic_write_json(CONFIG_PATH, updated)
@@ -379,8 +359,7 @@ def configure(args: argparse.Namespace) -> None:
     print(f"原始数据: {raw_root}")
     print(f"处理后数据: {output_root}")
     print(f"SAM2: 前 {before} 帧，后 {after} 帧")
-    print(f"标注模式: {'仅血管' if mode == 'vessel' else '血管与肿瘤'}")
-    print(f"Windows 快捷入口使用的 Conda 环境: {conda_env}")
+    print(f"Python 解释器: {python_executable}")
 
 
 def require_configured(config: dict[str, Any]) -> None:
@@ -591,7 +570,7 @@ def status() -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="DataSeg 血管与肿瘤数据标定工具",
+        description="DataSeg 多类别 Mask 数据标定工具",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("doctor", help="检查 Python、依赖、SAM2 和模型")
@@ -602,11 +581,6 @@ def build_parser() -> argparse.ArgumentParser:
     configure_parser.add_argument("--before", type=int, help="向前传播帧数")
     configure_parser.add_argument("--after", type=int, help="向后传播帧数")
     configure_parser.add_argument(
-        "--mode",
-        choices=("vessel", "both"),
-        help="vessel=仅血管，both=血管与肿瘤",
-    )
-    configure_parser.add_argument(
         "--device",
         choices=("auto", "cuda", "cpu"),
         help="SAM2 运行设备",
@@ -614,7 +588,11 @@ def build_parser() -> argparse.ArgumentParser:
     configure_parser.add_argument("--port", type=int, help="本地服务端口")
     configure_parser.add_argument(
         "--conda-env",
-        help="Windows 快捷入口调用的 Conda 环境名",
+        help=argparse.SUPPRESS,
+    )
+    configure_parser.add_argument(
+        "--python-executable",
+        help="Windows 快捷入口使用的 Python 解释器",
     )
 
     start_parser = subparsers.add_parser("start", help="准备数据并启动审核界面")
@@ -631,7 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def interactive_menu(parser: argparse.ArgumentParser) -> argparse.Namespace:
-    print("DataSeg 血管与肿瘤数据标定工具")
+    print("DataSeg 多类别 Mask 数据标定工具")
     print("1. 启动")
     print("2. 配置")
     print("3. 检查环境")
