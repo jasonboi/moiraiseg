@@ -1,5 +1,7 @@
 const DEFAULT_SAM2_BEFORE_FRAMES = 4;
 const DEFAULT_SAM2_AFTER_FRAMES = 16;
+const SAM2_REVIEW_HEARTBEAT_MS = 30_000;
+const SAM2_REVIEW_RELEASE_RETRY_MS = Object.freeze([0, 500, 2_000]);
 const MAX_MASK_CATEGORIES = 5;
 const MASK_OVERLAY_ALPHA = 0.44;
 const MASK_CATEGORY_COLOR_CANDIDATES = Object.freeze([
@@ -47,9 +49,9 @@ const ENGLISH_TEXT = {
   "添加第一个类别": "Add first category",
   "添加 Mask 类别": "Add Mask category",
   "名称显示在标定界面中。文件夹名保存后不能修改。": "The name appears in the annotation UI. The folder name cannot be changed after saving.",
-  "UI 中的名字": "UI name",
+  "显示名称": "Display name",
   "文件夹名字": "Folder name",
-  "标记颜色": "Annotation color",
+  "覆盖颜色": "Overlay color",
   "小写字母开头，只能使用小写字母、数字、下划线和连字符。": "Start with a lowercase letter. Use lowercase letters, numbers, underscores, and hyphens only.",
   "覆盖透明度固定为 44%": "Overlay opacity is fixed at 44%",
   "取消": "Cancel",
@@ -328,6 +330,8 @@ const state = {
     open: false,
     loading: false,
     saving: false,
+    reviewToken: null,
+    heartbeatId: null,
     overwriteReviewed: false,
     keyframeIndex: null,
     items: [],
@@ -735,7 +739,7 @@ function maskCategoryDialogMarkup() {
         <p class="mask-category-intro" data-bind="mask-category-intro">名称显示在标定界面中。文件夹名保存后不能修改。</p>
         <form data-form="mask-category">
           <label>
-            <span>UI 中的名字</span>
+            <span>显示名称</span>
             <input name="display_name" maxlength="80" autocomplete="off" required placeholder="例如：神经" />
           </label>
           <label>
@@ -744,7 +748,7 @@ function maskCategoryDialogMarkup() {
             <small>小写字母开头，只能使用小写字母、数字、下划线和连字符。</small>
           </label>
           <label>
-            <span>标记颜色</span>
+            <span>覆盖颜色</span>
             <span class="mask-color-control">
               <input type="color" name="color" value="#0072B2" required />
               <output data-bind="mask-category-color">#0072B2</output>
@@ -2052,6 +2056,8 @@ async function openSam2Propagation() {
   state.batch.editor.open = false;
   state.batch.open = true;
   state.batch.loading = true;
+  stopSam2ReviewHeartbeat();
+  state.batch.reviewToken = null;
   state.batch.overwriteReviewed = false;
   state.batch.keyframeIndex = keyframeIndex;
   state.batch.items = [];
@@ -2081,11 +2087,20 @@ async function openSam2Propagation() {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "SAM2 关键帧传播失败");
+    const reviewToken = typeof result.review_token === "string"
+      ? result.review_token
+      : null;
+    if (!reviewToken) throw new Error("SAM2 传播审核状态无效");
     if (
       requestId !== state.batch.requestId ||
       !state.batch.open ||
       state.index !== keyframeIndex
-    ) return;
+    ) {
+      releaseSam2Review(reviewToken);
+      return;
+    }
+    state.batch.reviewToken = reviewToken;
+    startSam2ReviewHeartbeat(reviewToken);
     const items = await Promise.all(result.items.map(loadSam2Preview));
     if (
       requestId !== state.batch.requestId ||
@@ -2760,6 +2775,7 @@ function syncBatchUi() {
     button.disabled =
       state.batch.loading ||
       state.batch.saving ||
+      !state.batch.reviewToken ||
       state.batch.selected.size === 0;
     button.textContent = state.batch.saving
       ? "正在写入…"
@@ -2771,6 +2787,69 @@ function syncBatchUi() {
   }
 }
 
+function stopSam2ReviewHeartbeat() {
+  if (state.batch.heartbeatId !== null) {
+    window.clearInterval(state.batch.heartbeatId);
+    state.batch.heartbeatId = null;
+  }
+}
+
+function startSam2ReviewHeartbeat(reviewToken) {
+  stopSam2ReviewHeartbeat();
+  state.batch.heartbeatId = window.setInterval(async () => {
+    if (state.batch.reviewToken !== reviewToken) {
+      stopSam2ReviewHeartbeat();
+      return;
+    }
+    try {
+      const response = await fetch(
+        `/api/sam2/reviews/${encodeURIComponent(reviewToken)}/heartbeat`,
+        { method: "POST", headers: projectHeaders() },
+      );
+      if (!response.ok) {
+        stopSam2ReviewHeartbeat();
+        state.batch.reviewToken = null;
+        state.batch.error = "SAM2 传播审核已过期，请关闭后重新传播";
+        syncBatchUi();
+      }
+    } catch {
+      // The server lease remains valid until its timeout, so a transient miss is safe.
+    }
+  }, SAM2_REVIEW_HEARTBEAT_MS);
+}
+
+function releaseSam2Review(reviewToken = state.batch.reviewToken) {
+  if (!reviewToken) return;
+  if (reviewToken === state.batch.reviewToken) {
+    state.batch.reviewToken = null;
+    stopSam2ReviewHeartbeat();
+  }
+  const release = async (attempt = 0) => {
+    if (SAM2_REVIEW_RELEASE_RETRY_MS[attempt]) {
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, SAM2_REVIEW_RELEASE_RETRY_MS[attempt]),
+      );
+    }
+    try {
+      const response = await fetch(
+        `/api/sam2/reviews/${encodeURIComponent(reviewToken)}`,
+        {
+          method: "DELETE",
+          headers: projectHeaders(),
+          keepalive: true,
+        },
+      );
+      if (response.ok || response.status === 400 || response.status === 404) return;
+    } catch {
+      // Retry below while the page is still alive. The server also expires the lease.
+    }
+    if (attempt + 1 < SAM2_REVIEW_RELEASE_RETRY_MS.length) {
+      release(attempt + 1);
+    }
+  };
+  release();
+}
+
 function closeBatchReview(force = false) {
   if (state.batch.saving) return;
   if (
@@ -2778,6 +2857,7 @@ function closeBatchReview(force = false) {
     state.batch.items.some(({ edited }) => edited) &&
     !window.confirm("预览里还有未保存的微调，确定关闭并丢弃吗？")
   ) return;
+  releaseSam2Review();
   state.batch.requestId += 1;
   state.batch.open = false;
   state.batch.loading = false;
@@ -2849,6 +2929,7 @@ async function acceptBatchCandidates() {
       method: "POST",
       headers: projectHeaders(),
       body: JSON.stringify({
+        review_token: state.batch.reviewToken,
         overwrite_reviewed: reviewedSelected > 0,
         keyframe_index: state.batch.keyframeIndex,
         items: selectedItems.map(({ index, masks }) => ({
@@ -2864,6 +2945,8 @@ async function acceptBatchCandidates() {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "传播结果保存失败");
+    stopSam2ReviewHeartbeat();
+    state.batch.reviewToken = null;
     result.saved_indices.forEach((index) => {
       state.manifest.items[index].reviewed = true;
     });
@@ -3386,6 +3469,10 @@ window.addEventListener("beforeunload", (event) => {
   ) return;
   event.preventDefault();
   event.returnValue = "";
+});
+
+window.addEventListener("pagehide", () => {
+  releaseSam2Review();
 });
 
 async function init() {

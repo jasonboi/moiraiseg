@@ -10,8 +10,12 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import uuid
 import webbrowser
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -45,6 +49,7 @@ PREPARED_ROOT = DEFAULT_BATCH_ROOT / "prepared"
 CANDIDATE_ROOT = DEFAULT_BATCH_ROOT / "candidate_labels"
 DEFAULT_DATASET_ROOT = REVIEWER_ROOT / "reviewed_dataset"
 REVIEWER_STATE_SCHEMA_VERSION = 2
+SAM2_REVIEW_LEASE_SECONDS = 120
 
 
 class DatasetFramePaths(TypedDict):
@@ -65,6 +70,16 @@ class MaskCategoryConflictError(ValueError):
         super().__init__(message)
         self.code = code
         self.archives = archives or []
+
+
+class MaskCategoryBusyError(RuntimeError):
+    """Category metadata cannot change during an incompatible operation."""
+
+
+@dataclass(frozen=True)
+class Sam2ReviewLease:
+    category_folders: tuple[str, ...]
+    expires_at: float | None
 
 
 def utc_now() -> str:
@@ -132,7 +147,6 @@ class ReviewerStore:
         self.project_path = self.internal_root / "project.json"
         self.project = self._load_project()
         self.mask_categories = MaskCategoryCatalog.from_project(self.project)
-        self.category_folders = self.mask_categories.folder_names
         self.project_id = str(self.project["project_id"])
         self.raw_data_dir = str(
             Path(self.project["raw_data_dir"]).resolve()
@@ -145,6 +159,10 @@ class ReviewerStore:
         self.sam2_after_frames = sam2_after_frames
         self.state_path = self.internal_root / "reviewer_state.json"
         self.lock = threading.RLock()
+        self._operation_state_lock = threading.Lock()
+        self._save_operations = 0
+        self._category_mutation_active = False
+        self._sam2_reviews: dict[str, Sam2ReviewLease] = {}
         self.all_items = self._load_items()
         if included_clips:
             known_clips = {item["clip"] for item in self.all_items}
@@ -160,6 +178,120 @@ class ReviewerStore:
         self.state = self._load_state()
         self._reconcile_state()
         self._write_manifests()
+
+    @property
+    def category_folders(self) -> tuple[str, ...]:
+        """Return the active category identities from the project catalog."""
+        return self.mask_categories.folder_names
+
+    @contextmanager
+    def _category_mutation(self) -> Iterator[None]:
+        with self._operation_state_lock:
+            self._purge_expired_sam2_reviews()
+            if self._save_operations:
+                raise MaskCategoryBusyError(
+                    "Mask category management is unavailable during a save"
+                )
+            if self._sam2_reviews:
+                raise MaskCategoryBusyError(
+                    "Mask category management is unavailable during an open SAM2 review"
+                )
+            if self._category_mutation_active:
+                raise MaskCategoryBusyError(
+                    "Another Mask category operation is already in progress"
+                )
+            self._category_mutation_active = True
+        try:
+            with self.lock:
+                yield
+        finally:
+            with self._operation_state_lock:
+                self._category_mutation_active = False
+
+    @contextmanager
+    def _save_operation(self) -> Iterator[None]:
+        with self._operation_state_lock:
+            if self._category_mutation_active:
+                raise MaskCategoryBusyError(
+                    "Saving is unavailable during a Mask category operation"
+                )
+            self._save_operations += 1
+        try:
+            yield
+        finally:
+            with self._operation_state_lock:
+                self._save_operations -= 1
+
+    def _open_sam2_review(self) -> str:
+        with self._operation_state_lock:
+            self._purge_expired_sam2_reviews()
+            if self._save_operations:
+                raise MaskCategoryBusyError(
+                    "SAM2 propagation is unavailable during a save"
+                )
+            if self._category_mutation_active:
+                raise MaskCategoryBusyError(
+                    "SAM2 propagation is unavailable during a Mask category operation"
+                )
+            review_token = uuid.uuid4().hex
+            self._sam2_reviews[review_token] = Sam2ReviewLease(
+                category_folders=self.category_folders,
+                expires_at=None,
+            )
+            return review_token
+
+    def _activate_sam2_review(self, review_token: str) -> None:
+        with self._operation_state_lock:
+            lease = self._sam2_reviews.get(review_token)
+            if lease is None:
+                raise ValueError("SAM2 review token is invalid or closed")
+            self._sam2_reviews[review_token] = Sam2ReviewLease(
+                category_folders=lease.category_folders,
+                expires_at=time.monotonic() + SAM2_REVIEW_LEASE_SECONDS,
+            )
+
+    def _purge_expired_sam2_reviews(self) -> None:
+        now = time.monotonic()
+        expired_tokens = [
+            review_token
+            for review_token, lease in self._sam2_reviews.items()
+            if lease.expires_at is not None and lease.expires_at <= now
+        ]
+        for review_token in expired_tokens:
+            self._sam2_reviews.pop(review_token, None)
+
+    def _validate_sam2_review(self, review_token: str) -> None:
+        if not isinstance(review_token, str) or not review_token:
+            raise ValueError("SAM2 review token is required")
+        with self._operation_state_lock:
+            self._purge_expired_sam2_reviews()
+            lease = self._sam2_reviews.get(review_token)
+            if lease is None:
+                raise ValueError("SAM2 review token is invalid or closed")
+            if lease.category_folders != self.category_folders:
+                raise ValueError("Mask categories changed during the SAM2 review")
+
+    def renew_sam2_review(self, review_token: str) -> dict[str, bool]:
+        if not isinstance(review_token, str) or not review_token:
+            raise ValueError("SAM2 review token is required")
+        with self._operation_state_lock:
+            self._purge_expired_sam2_reviews()
+            lease = self._sam2_reviews.get(review_token)
+            if lease is None or lease.expires_at is None:
+                raise ValueError("SAM2 review token is invalid or not ready")
+            self._sam2_reviews[review_token] = Sam2ReviewLease(
+                category_folders=lease.category_folders,
+                expires_at=time.monotonic() + SAM2_REVIEW_LEASE_SECONDS,
+            )
+        return {"active": True}
+
+    def close_sam2_review(self, review_token: str) -> dict[str, bool]:
+        if not isinstance(review_token, str) or not review_token:
+            raise ValueError("SAM2 review token is required")
+        with self._operation_state_lock:
+            self._purge_expired_sam2_reviews()
+            closed = self._sam2_reviews.pop(review_token, None) is not None
+        return {"closed": closed}
 
     def _load_project(self) -> dict:
         if not self.project_path.is_file():
@@ -356,7 +488,7 @@ class ReviewerStore:
         """Validate, persist, and activate one project-owned Mask category."""
         if not isinstance(payload, dict):
             raise ValueError("Mask category payload must be an object")
-        with self.lock:
+        with self._category_mutation():
             archive_action = payload.get("archive_action")
             if archive_action not in {None, "start_empty"}:
                 raise ValueError(
@@ -409,7 +541,6 @@ class ReviewerStore:
             category_activated = False
             previous_project = self.project
             previous_catalog = self.mask_categories
-            previous_folders = self.category_folders
             snapshots = self._file_snapshots(self._catalog_transaction_files())
             reviewed_items = [
                 item
@@ -429,12 +560,10 @@ class ReviewerStore:
                 atomic_write_json(self.project_path, updated_project)
                 self.project = updated_project
                 self.mask_categories = updated_catalog
-                self.category_folders = updated_catalog.folder_names
                 self._write_manifests()
             except Exception:
                 self.project = previous_project
                 self.mask_categories = previous_catalog
-                self.category_folders = previous_folders
                 if category_activated:
                     shutil.rmtree(category_root, ignore_errors=True)
                 shutil.rmtree(staging_root, ignore_errors=True)
@@ -496,7 +625,7 @@ class ReviewerStore:
 
     def archive_mask_category(self, folder_name: str) -> dict[str, str]:
         """Archive one active category and move all of its Mask data atomically."""
-        with self.lock:
+        with self._category_mutation():
             archive_id = uuid.uuid4().hex
             try:
                 updated_catalog, archived = self.mask_categories.archive(
@@ -520,7 +649,6 @@ class ReviewerStore:
 
             previous_project = self.project
             previous_catalog = self.mask_categories
-            previous_folders = self.category_folders
             updated_project = updated_catalog.write_to(self.project)
             snapshots = self._file_snapshots(self._catalog_transaction_files())
             moved = False
@@ -530,12 +658,10 @@ class ReviewerStore:
                 atomic_write_json(self.project_path, updated_project)
                 self.project = updated_project
                 self.mask_categories = updated_catalog
-                self.category_folders = updated_catalog.folder_names
                 self._write_manifests()
             except Exception:
                 self.project = previous_project
                 self.mask_categories = previous_catalog
-                self.category_folders = previous_folders
                 if moved and destination_root.exists() and not source_root.exists():
                     source_root.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(destination_root, source_root)
@@ -551,7 +677,7 @@ class ReviewerStore:
 
     def restore_mask_category(self, archive_id: str) -> dict[str, str]:
         """Restore one archived category with its original metadata and Masks."""
-        with self.lock:
+        with self._category_mutation():
             try:
                 updated_catalog, archived = self.mask_categories.restore(archive_id)
             except RuntimeError as error:
@@ -571,7 +697,6 @@ class ReviewerStore:
 
             previous_project = self.project
             previous_catalog = self.mask_categories
-            previous_folders = self.category_folders
             updated_project = updated_catalog.write_to(self.project)
             snapshots = self._file_snapshots(self._catalog_transaction_files())
             moved = False
@@ -582,12 +707,10 @@ class ReviewerStore:
                 atomic_write_json(self.project_path, updated_project)
                 self.project = updated_project
                 self.mask_categories = updated_catalog
-                self.category_folders = updated_catalog.folder_names
                 self._write_manifests()
             except Exception:
                 self.project = previous_project
                 self.mask_categories = previous_catalog
-                self.category_folders = previous_folders
                 if moved and destination_root.exists() and not source_root.exists():
                     source_root.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(destination_root, source_root)
@@ -613,7 +736,7 @@ class ReviewerStore:
         """Persist mutable metadata for one active Mask category."""
         if not isinstance(payload, dict):
             raise ValueError("Mask category update payload must be an object")
-        with self.lock:
+        with self._category_mutation():
             try:
                 updated_catalog = self.mask_categories.update(
                     folder_name,
@@ -626,7 +749,6 @@ class ReviewerStore:
             atomic_write_json(self.project_path, updated_project)
             self.project = updated_project
             self.mask_categories = updated_catalog
-            self.category_folders = updated_catalog.folder_names
             category = next(
                 category
                 for category in updated_catalog.active
@@ -675,6 +797,25 @@ class ReviewerStore:
         )
 
     def sam2_preview(
+        self,
+        index: int,
+        payload: dict,
+        service: Sam2PropagationService,
+    ) -> dict:
+        folder_name = payload.get("label")
+        if folder_name not in self.category_folders:
+            raise ValueError("SAM2 propagation category is not active")
+        review_token = self._open_sam2_review()
+        try:
+            result = self._sam2_preview(index, payload, service)
+        except Exception:
+            self.close_sam2_review(review_token)
+            raise
+        self._activate_sam2_review(review_token)
+        result["review_token"] = review_token
+        return result
+
+    def _sam2_preview(
         self,
         index: int,
         payload: dict,
@@ -773,6 +914,10 @@ class ReviewerStore:
         return payload
 
     def save(self, index: int, payload: dict) -> dict:
+        with self._save_operation():
+            return self._save(index, payload)
+
+    def _save(self, index: int, payload: dict) -> dict:
         if not self.category_folders:
             raise ValueError("Add a Mask category before saving")
         item = self.item(index)
@@ -805,6 +950,25 @@ class ReviewerStore:
             }
 
     def save_batch(
+        self,
+        entries: list[dict],
+        overwrite_reviewed: bool = False,
+        keyframe_index: int | None = None,
+        review_token: str | None = None,
+    ) -> dict:
+        if review_token is not None:
+            self._validate_sam2_review(review_token)
+        with self._save_operation():
+            result = self._save_batch(
+                entries,
+                overwrite_reviewed=overwrite_reviewed,
+                keyframe_index=keyframe_index,
+            )
+        if review_token is not None:
+            self.close_sam2_review(review_token)
+        return result
+
+    def _save_batch(
         self,
         entries: list[dict],
         overwrite_reviewed: bool = False,
@@ -1115,6 +1279,13 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.CONFLICT,
                 )
                 return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "sam2", "reviews"]
+                and parts[4] == "heartbeat"
+            ):
+                self._send_json(self.store.renew_sam2_review(parts[3]))
+                return
             if parsed.path == "/api/sam2/propagate":
                 if self.sam2_service is None:
                     self._send_json(
@@ -1166,6 +1337,9 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                 if length <= 0 or length > 20_000_000:
                     raise ValueError("Invalid request size")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                review_token = payload.get("review_token")
+                if not isinstance(review_token, str) or not review_token:
+                    raise ValueError("SAM2 review token is required")
                 self._send_json(
                     self.store.save_batch(
                         payload["items"],
@@ -1174,6 +1348,7 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                             False,
                         ),
                         keyframe_index=payload.get("keyframe_index"),
+                        review_token=review_token,
                     )
                 )
                 return
@@ -1189,6 +1364,11 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
         except MaskCategoryConflictError as error:
             self._send_category_conflict(error)
+        except MaskCategoryBusyError as error:
+            self._send_json(
+                {"error": str(error), "code": "category_management_busy"},
+                HTTPStatus.CONFLICT,
+            )
         except (
             IndexError,
             ValueError,
@@ -1222,12 +1402,20 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.CONFLICT,
                 )
                 return
+            if len(parts) == 4 and parts[:3] == ["api", "sam2", "reviews"]:
+                self._send_json(self.store.close_sam2_review(parts[3]))
+                return
             if len(parts) != 3 or parts[:2] != ["api", "mask-categories"]:
                 self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
                 return
             self._send_json(self.store.archive_mask_category(parts[2]))
         except MaskCategoryConflictError as error:
             self._send_category_conflict(error)
+        except MaskCategoryBusyError as error:
+            self._send_json(
+                {"error": str(error), "code": "category_management_busy"},
+                HTTPStatus.CONFLICT,
+            )
         except (ValueError, RuntimeError, KeyError) as error:
             self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
         except Exception as error:
@@ -1264,6 +1452,11 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             self._send_json(
                 self.store.update_mask_category(parts[2], payload),
+            )
+        except MaskCategoryBusyError as error:
+            self._send_json(
+                {"error": str(error), "code": "category_management_busy"},
+                HTTPStatus.CONFLICT,
             )
         except (
             ValueError,
