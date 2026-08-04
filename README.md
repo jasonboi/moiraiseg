@@ -2,28 +2,29 @@
 
 [中文](README.md) | [English](README.en.md)
 
-DataSeg 是一个面向超声连续帧的本地数据标定工具，用于制作和审核血管、肿瘤 Mask。它提供 Python Tk 桌面启动器和浏览器标定界面，并使用 SAM2.1 从人工关键帧向前、向后传播 Mask。
+DataSeg 是一个面向超声连续帧的本地数据标定工具，用于制作和审核自定义 Mask。它提供 Python Tk 桌面启动器和浏览器标定界面，并使用 SAM2.1 从人工关键帧向前、向后传播 Mask。
 
 项目默认使用中文。Tk 启动器和网页右上角都可以点击 `English` 切换英文，网页会在当前浏览器中记住语言选择。
 
 ## 功能
 
-- 套索、画笔和橡皮擦编辑血管与肿瘤 Mask
+- 套索、画笔和橡皮擦编辑自定义 Mask
 - 单帧保存、SAM2 传播审核和放大微调
 - SAM2.1 关键帧双向传播
-- 仅血管、血管与肿瘤两种标注模式
+- 在浏览器中从 0 开始随时管理最多 5 种 Mask 类别
 - 自动选择 CUDA 或 CPU
 - 按输出目录隔离项目、审核进度与写入权限
 - 基于文件内容哈希的跨设备审核续接
 - Tk 桌面启动器、Windows 双击入口和命令行入口
 - 中文与英文界面
 
-DataSeg 只监听 `127.0.0.1`。原始图像保持只读，只有确认保存的图像和 Mask 会写入输出目录。
+DataSeg 只监听 `127.0.0.1`。原始图像保持只读。保存帧和确认类别管理操作时，DataSeg 只写入输出目录。添加类别时，DataSeg 会立即为已经审核的帧补充空 Mask。
 
 ## 系统要求
 
 - Windows、Linux 或 macOS
-- Conda、Miniforge、Miniconda 或 Anaconda
+- Conda、Miniforge、Miniconda 或 Anaconda，推荐
+- Python 自带的 `venv` 或兼容虚拟环境，可选
 - Python 3.11
 - Tcl/Tk，仅桌面启动器需要
 - 支持 CUDA 的 NVIDIA GPU，可选
@@ -42,7 +43,7 @@ cd DataSeg
 
 仓库包含 DataSeg 和运行所需的精简版 SAM2 源码。模型权重不放进 Git，安装时由官方地址下载。
 
-### 2. 创建 Conda 环境
+### 2. 创建 Conda 环境（推荐）
 
 ```bash
 conda env create -f environment.yml
@@ -61,6 +62,26 @@ python -m pip install -r requirements.txt
 ```
 
 需要 NVIDIA GPU 加速时，先根据目标电脑的 CUDA 情况按照 [PyTorch 官方安装说明](https://pytorch.org/get-started/locally/)安装 PyTorch 和 TorchVision，再安装其余依赖。
+
+也可以使用 Python 3.11 自带的 `venv`。Windows 示例：
+
+```bat
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Linux 或 macOS 示例：
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+`venv` 复用创建它的 Python 所带的 Tcl/Tk。Windows 和 macOS 建议使用包含 Tcl/Tk 的 Python 3.11 安装包。Debian 或 Ubuntu 需要先安装对应的 `python3-tk` 系统包。可以运行 `python -m tkinter` 检查 Tk，再继续下载模型和检查环境。
 
 ### 3. 下载 SAM2 模型
 
@@ -102,23 +123,29 @@ python dataseg_gui.py
 1. 选择待处理原始数据目录。
 2. 选择处理后数据目录。
 3. 设置 SAM2 向前和向后传播帧数。
-4. 选择标注模式和运行设备。
+4. 选择运行设备。Mask 类别在浏览器标定页中管理。
 5. 点击“保存并启动”。
 6. 浏览器会打开标定页面。
 
 右上角的 `English` 和 `中文` 按钮用于切换界面语言。Tk 启动器每次打开时默认使用中文。
 
+DataSeg 始终使用启动 `dataseg_gui.py` 的 Python 解释器执行环境检查、数据准备和本地服务。最右侧的只读“当前环境”会显示 `Conda · 环境名`、`venv · 目录名` 或解释器完整路径。使用 `.venv` 时先激活它，再运行同一条启动命令：
+
+```bash
+python dataseg_gui.py
+```
+
 ### Windows 双击启动
 
-创建 `usdia-seg` 环境并下载模型后，双击：
+完成 Conda（推荐）或兼容虚拟环境安装并下载模型后，双击：
 
 ```text
 DataSeg启动器.cmd
 ```
 
-快捷入口会读取本地 `config.json` 中的 Conda 环境名。首次运行还没有配置文件时，它使用默认环境 `usdia-seg`。
+保存过配置后，快捷入口优先使用 `config.json` 记录的 Python 解释器。没有可用记录时，它依次尝试旧配置指定或默认的 `usdia-seg` Conda 环境、项目内 `.venv`，最后尝试 `PATH` 中的 Python。
 
-如果使用自定义环境名，第一次先在已激活的环境中运行 `python dataseg_gui.py` 并保存配置。之后双击入口会使用保存的环境名。
+第一次使用自定义 Conda 环境、`.venv` 或其他兼容虚拟环境时，先激活该环境，运行 `python dataseg_gui.py` 并保存配置。之后双击入口会继续使用同一个解释器。旧版 `conda_env` 配置仍可读取。
 
 ### 命令行
 
@@ -153,10 +180,8 @@ python dataseg.py configure ^
   --output "D:\ultrasound-reviewed" ^
   --before 4 ^
   --after 16 ^
-  --mode vessel ^
   --device auto ^
-  --port 8767 ^
-  --conda-env usdia-seg
+  --port 8767
 ```
 
 PowerShell、Git Bash、Linux 和 macOS 可以写成一行，或改用对应终端的续行符。
@@ -174,14 +199,33 @@ PowerShell、Git Bash、Linux 和 macOS 可以写成一行，或改用对应终�
   "output_dir": "",
   "sam2_before_frames": 4,
   "sam2_after_frames": 16,
-  "vessel_only": true,
   "sam2_device": "auto",
-  "conda_env": "usdia-seg",
+  "python_executable": "",
   "port": 8767
 }
 ```
 
+通过桌面启动器保存时，`python_executable` 会写入当前解释器的绝对路径。示例模板保持为空，避免提交某台电脑的本地路径。旧配置中的 `conda_env` 只用于 Windows 双击入口的兼容回退。
+
+Mask 类别元数据保存在输出项目的 `.dataseg/project.json` 中，不放在本地 `config.json` 中。当前项目元数据使用 `schema_version=3`。旧版 `schema_version=2` 项目首次打开时会原地迁移。`vessel_only=true` 会迁移为单一活动 `vessel` 类别，其他旧项目会迁移为 `vessel` 和 `lesion` 两个活动类别。已有文件夹、Mask 文件和审核进度保持不变，不会移动或重写。
+
 网页服务只绑定本机回环地址。日志写入 `logs/`，运行状态写入 `runtime/`，两者都不会提交。
+
+## Mask 类别管理
+
+Mask 类别只在浏览器标定界面的左栏管理。新项目从 0 个活动类别开始，首次打开时可以点击“添加第一个类别”。没有活动类别时仍可浏览图像和打开归档恢复，但绘制、保存和 SAM2 传播不可用。
+
+添加类别时需要设置：
+
+- 显示名称：界面中显示的自定义名称，支持 Unicode。活动类别的显示名称不区分大小写且不能重复。自定义名称在中文和英文界面中都会原样显示。
+- 文件夹名称：输出数据使用的稳定名称，只允许匹配 `[a-z][a-z0-9_-]{0,31}`。活动类别的文件夹名称不能重复，创建后不能修改。
+- 覆盖颜色：通过色板选择 `#RRGGBB` 颜色。活动类别的颜色不能重复，覆盖透明度固定为 44%，确保底下的超声图像仍然可见。
+
+活动列表最多包含 5 个类别，并在左栏内单独滚动。类别顺序对应数字键 `1`–`5`。点击类别会选中并显示它，类别行上的显示开关只控制覆盖层，不会改动 Mask 数据。隐藏当前类别会暂停绘制，重新选择该类别会让它恢复显示并允许继续编辑。
+
+可以在审核中途添加类别。已经审核的帧仍保持已审核状态，DataSeg 会为新类别在这些帧上创建空的二值 PNG，不会推断或复制标定内容。编辑类别只能修改显示名称和颜色，文件夹名称始终保持不变。当前帧有未保存修改时仍可添加或编辑类别。
+
+删除类别前需要确认。DataSeg 会把类别元数据和 Mask 移入当前项目的可恢复归档，允许删除最后一个活动类别。左栏底部的“归档恢复”可以恢复原有类别和 Mask。添加类别时如果文件夹名称已有归档，必须明确选择恢复旧数据，或保留归档并以当前输入新建空类别。删除和恢复前需要先保存或丢弃当前帧的修改。在帧保存、SAM2 传播审核、传播微调或其他类别操作进行期间，类别管理会暂时禁用。
 
 ## 输入数据格式
 
@@ -211,10 +255,7 @@ PowerShell、Git Bash、Linux 和 macOS 可以写成一行，或改用对应终�
 │  └─ 采集片段名/
 │     └─ frame_*.png
 ├─ masks/
-│  ├─ vessel/
-│  │  └─ 采集片段名/
-│  │     └─ frame_*.png
-│  └─ lesion/
+│  └─ <文件夹名称>/        # 每个活动 Mask 类别一个目录
 │     └─ 采集片段名/
 │        └─ frame_*.png
 ├─ annotation_manifest.csv
@@ -223,11 +264,19 @@ PowerShell、Git Bash、Linux 和 macOS 可以写成一行，或改用对应终�
    ├─ project.json
    ├─ reviewer_state.json
    ├─ annotation_index.json
+   ├─ mask_archive/         # 有归档类别时存在
+   │  └─ <归档 ID>/
+   │     └─ 采集片段名/
+   │        └─ frame_*.png
    ├─ prepared/
    └─ candidate_labels/
 ```
 
-`.dataseg/reviewer_state.json` 保存审核进度。项目元数据和进度跟随整个输出目录。选择新的空目录会创建独立项目，完整复制已有输出目录会保留原项目 ID 和审核进度。
+DataSeg 只在实际添加类别时创建对应的 Mask 目录，不会预先创建 5 个目录。0 个活动类别时，`masks/` 中没有活动类别子目录。每个已审核帧的类别 Mask 都是二值 PNG。
+
+`annotation_manifest.csv` 和 `annotation_manifest.jsonl` 会根据活动类别动态生成字段。除图像和审核信息外，每个活动类别会增加一个 `<文件夹名称>_mask` 字段，值为相对于输出项目的 Mask 路径。归档类别不会出现在活动清单中。
+
+`.dataseg/project.json` 是活动和归档类别元数据的唯一来源。`.dataseg/reviewer_state.json` 保存审核进度。归档 Mask 保存在 `.dataseg/mask_archive/<归档 ID>`。项目元数据、审核进度和归档数据都跟随整个输出目录。选择新的空目录会创建独立项目，完整复制已有输出目录会保留原项目 ID、审核进度和 Mask 类别。
 
 DataSeg 不划分 train、validation 和 test。训练前应按受试者划分，其次按完整采集片段划分。不要随机拆分连续帧，也不要让同一受试者的数据出现在多个集合中。
 
@@ -250,8 +299,7 @@ DataSeg 不划分 train、validation 和 test。训练前应按受试者划分�
 
 | 操作 | 快捷键 |
 | --- | --- |
-| 选择血管 Mask | `1` |
-| 选择肿瘤 Mask | `2` |
+| 选择第 1 至 5 个 Mask 类别 | `1`–`5` |
 | 套索 | `Q` |
 | 画笔 | `W` |
 | 橡皮擦 | `E` |
@@ -262,7 +310,7 @@ DataSeg 不划分 train、validation 和 test。训练前应按受试者划分�
 | 从当前关键帧进行 SAM2 传播 | `P` |
 | 清空当前帧 Mask | `X` |
 
-SAM2 会传播当前选中的 Mask 类别，另一类 Mask 保留每帧原有内容。当前关键帧之前的已审核帧始终只用于对照，不能被覆盖。需要重新写入关键帧之后的审核结果时，在传播预览中开启“允许覆盖向后已审核帧”，再手动勾选需要覆盖的帧。确认页面会显示覆盖数量，未勾选的审核结果保持不变。批量确认后，审核页面停留在本批最后一张已保存的帧。
+SAM2 会传播当前选中的 Mask 类别，其他 Mask 类别保留每帧原有内容。传播批次的放大微调器会显示全部活动类别，数字键 `1`–`5` 同样按类别顺序切换。当前关键帧之前的已审核帧始终只用于对照，不能被覆盖。需要重新写入关键帧之后的审核结果时，在传播预览中开启“允许覆盖向后已审核帧”，再手动勾选需要覆盖的帧。确认页面会显示覆盖数量，未勾选的审核结果保持不变。批量确认后，审核页面停留在本批最后一张已保存的帧。
 
 在传播预览中，按住 `Shift` 点击勾选框可以连续选择或取消一段帧，也可以按住鼠标拖过多个勾选框批量操作。进入放大微调后，按 `X` 会清空当前帧的全部 Mask，按 `Ctrl+Z` 可以撤销。
 
@@ -286,11 +334,13 @@ python scripts/download_model.py --force
 
 ### `init.tcl` 或 Tcl/Tk 错误
 
-在当前环境重新安装 Tk：
+Conda 环境可以重新安装 Tk：
 
 ```bash
 conda install -n usdia-seg -c conda-forge --force-reinstall tk
 ```
+
+使用 `.venv` 时，Tk 来自创建虚拟环境的基础 Python，无法通过 `pip install tkinter` 添加。Windows 或 macOS 请修复或重新安装包含 Tcl/Tk 的 Python 3.11，然后重新创建 `.venv`。Debian 或 Ubuntu 请安装对应的 `python3-tk` 系统包后重新创建 `.venv`。
 
 如果只使用命令行和浏览器服务，Tk 启动器不是必需的。
 

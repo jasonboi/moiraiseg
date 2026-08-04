@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -17,9 +18,18 @@ from typing import Any
 from PIL import Image
 
 
+TOOL_ROOT = Path(__file__).resolve().parents[1]
+if str(TOOL_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOL_ROOT))
+
+from app.mask_categories import (  # noqa: E402
+    MaskCategoryCatalog,
+    PROJECT_SCHEMA_VERSION,
+)
+
+
 FRAME_PATTERN = re.compile(r"(?:^|[_-])(\d+)(?:[_-]|\.)")
 INTERNAL_DIR_NAME = ".dataseg"
-PROJECT_SCHEMA_VERSION = 2
 CONTENT_SIGNATURE_VERSION = 1
 HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -233,6 +243,7 @@ def validate_legacy_project_rebind(
     previous: dict[str, Any],
     raw_root: Path,
     output_root: Path,
+    mask_folders: tuple[str, ...],
 ) -> None:
     """Verify an old path-bound project before adding portable hashes."""
     internal_root = output_root / INTERNAL_DIR_NAME
@@ -296,11 +307,11 @@ def validate_legacy_project_rebind(
                 "Cannot migrate because reviewed source images do not match "
                 f"the copied output: {item_id}"
             )
-        for label in ("vessel", "lesion"):
+        for folder_name in mask_folders:
             mask = (
                 output_root
                 / "masks"
-                / label
+                / folder_name
                 / clip_name
                 / source_file
             )
@@ -314,7 +325,6 @@ def validate_legacy_project_rebind(
 def ensure_project_compatible(
     project_path: Path,
     raw_root: Path,
-    vessel_only: bool,
     clip_summaries: dict[str, dict[str, Any]],
     output_root: Path,
 ) -> dict[str, Any] | None:
@@ -331,11 +341,7 @@ def ensure_project_compatible(
             )
         return None
     previous = read_json(project_path)
-    if previous.get("schema_version") != PROJECT_SCHEMA_VERSION:
-        raise RuntimeError(
-            "The selected output folder uses an unsupported DataSeg project "
-            "version. Choose an empty output folder."
-        )
+    categories = MaskCategoryCatalog.from_project(previous)
     if not str(previous.get("project_id", "")).strip():
         raise RuntimeError("The DataSeg project is missing project_id")
     previous_raw_value = str(previous.get("raw_data_dir", "")).strip()
@@ -343,10 +349,6 @@ def ensure_project_compatible(
         raise RuntimeError("The DataSeg project is missing raw_data_dir")
     path_changed = Path(previous_raw_value).expanduser().resolve() != raw_root
     count = reviewed_count(output_root)
-    if count and bool(previous.get("vessel_only")) != vessel_only:
-        raise RuntimeError(
-            "Label mode cannot change after review has started in this output folder"
-        )
     previous_clips = previous.get("clips", {})
     structure_changed = {
         name
@@ -395,7 +397,12 @@ def ensure_project_compatible(
     elif not has_previous_content and count and (
         path_changed or legacy_changed
     ):
-        validate_legacy_project_rebind(previous, raw_root, output_root)
+        validate_legacy_project_rebind(
+            previous,
+            raw_root,
+            output_root,
+            categories.folder_names,
+        )
     return previous
 
 
@@ -404,6 +411,7 @@ def prepare_clip(
     prepared_root: Path,
     candidate_root: Path,
     content_signature: str,
+    mask_folders: tuple[str, ...],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     metadata = load_metadata(clip_root / "metadata.csv")
     frames = sorted((clip_root / "frames").glob("*.png"), key=lambda path: path.name)
@@ -433,12 +441,12 @@ def prepare_clip(
                 f"Expected {expected_size}, found {size} in {frame_path.name}"
             )
         empty = Image.new("L", size, color=0)
-        for label in ("vessel", "lesion"):
+        for folder_name in mask_folders:
             atomic_save_png(
                 candidate_root
                 / clip_root.name
                 / "masks"
-                / label
+                / folder_name
                 / frame_path.name,
                 empty,
             )
@@ -514,7 +522,6 @@ def main() -> None:
         raise ValueError("output_dir must not be the raw folder or a child of it")
     output_root.mkdir(parents=True, exist_ok=True)
 
-    vessel_only = bool(config.get("vessel_only", False))
     clips = discover_clips(raw_root)
     internal_root = output_root / INTERNAL_DIR_NAME
     prepared_root = internal_root / "prepared"
@@ -544,10 +551,10 @@ def main() -> None:
     previous_project = ensure_project_compatible(
         project_path,
         raw_root,
-        vessel_only,
         preliminary,
         output_root,
     )
+    mask_categories = MaskCategoryCatalog.from_project(previous_project)
     raw_path_migrated = bool(previous_project) and (
         Path(str(previous_project["raw_data_dir"])).expanduser().resolve()
         != raw_root
@@ -582,6 +589,7 @@ def main() -> None:
             prepared_root,
             candidate_root,
             str(preliminary[clip.name]["content_signature"]),
+            mask_categories.folder_names,
         )
         project_clips[clip.name] = summary
         annotation_index["clips"][clip.name] = {
@@ -590,10 +598,8 @@ def main() -> None:
             "plane": "unassigned",
             "source_frames": len(frame_map),
             "selected_frames": len(frame_map),
-            "enabled_candidate_labels": (
-                ["vessel"] if vessel_only else ["vessel", "lesion"]
-            ),
-            "forced_empty_labels": ["lesion"] if vessel_only else [],
+            "enabled_candidate_labels": list(mask_categories.folder_names),
+            "forced_empty_labels": [],
             "image_size": {
                 "width": summary["width"],
                 "height": summary["height"],
@@ -616,8 +622,7 @@ def main() -> None:
         annotation_index,
     )
     atomic_write_csv(internal_root / "selection_manifest.csv", manifest_rows)
-    atomic_write_json(
-        project_path,
+    project = mask_categories.write_to(
         {
             "schema_version": PROJECT_SCHEMA_VERSION,
             "content_signature_version": CONTENT_SIGNATURE_VERSION,
@@ -625,12 +630,12 @@ def main() -> None:
             "project_id": project_id,
             "raw_data_dir": str(raw_root),
             "output_dir": str(output_root),
-            "vessel_only": vessel_only,
             "prepared_at": utc_now(),
             "total_frames": total,
             "clips": project_clips,
-        },
+        }
     )
+    atomic_write_json(project_path, project)
     print(
         json.dumps(
             {
@@ -639,7 +644,9 @@ def main() -> None:
                 "clips": len(clips),
                 "frames": total,
                 "reviewed": count,
-                "vessel_only": vessel_only,
+                "mask_categories": [
+                    category.to_dict() for category in mask_categories.active
+                ],
                 "raw_path_migrated": raw_path_migrated,
             },
             ensure_ascii=False,

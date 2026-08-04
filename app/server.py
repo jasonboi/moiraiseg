@@ -10,20 +10,31 @@ import os
 import shutil
 import tempfile
 import threading
+import uuid
 import webbrowser
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import TypedDict
 from urllib.parse import parse_qs, urlparse
 
 from PIL import Image
 
-from sam2_propagation import (
-    PropagationFrame,
-    PropagationWindow,
-    Sam2PropagationService,
-)
+if __package__:
+    from .mask_categories import MaskCategoryCatalog
+    from .sam2_propagation import (
+        PropagationFrame,
+        PropagationWindow,
+        Sam2PropagationService,
+    )
+else:
+    from mask_categories import MaskCategoryCatalog
+    from sam2_propagation import (
+        PropagationFrame,
+        PropagationWindow,
+        Sam2PropagationService,
+    )
 
 
 PROTOTYPE_ROOT = Path(__file__).resolve().parent
@@ -33,8 +44,27 @@ DEFAULT_BATCH_ROOT = REVIEWER_ROOT / "batches" / "20260719"
 PREPARED_ROOT = DEFAULT_BATCH_ROOT / "prepared"
 CANDIDATE_ROOT = DEFAULT_BATCH_ROOT / "candidate_labels"
 DEFAULT_DATASET_ROOT = REVIEWER_ROOT / "reviewed_dataset"
-LABELS = ("vessel", "lesion")
-PROJECT_SCHEMA_VERSION = 2
+REVIEWER_STATE_SCHEMA_VERSION = 2
+
+
+class DatasetFramePaths(TypedDict):
+    image_path: Path
+    masks: dict[str, Path]
+
+
+class MaskCategoryConflictError(ValueError):
+    """A category operation needs an explicit choice from the client."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        archives: list[dict[str, str]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.archives = archives or []
 
 
 def utc_now() -> str:
@@ -91,7 +121,6 @@ class ReviewerStore:
         prepared_root: Path = PREPARED_ROOT,
         candidate_root: Path = CANDIDATE_ROOT,
         included_clips: set[str] | None = None,
-        vessel_only: bool = False,
         sam2_before_frames: int = 4,
         sam2_after_frames: int = 16,
     ) -> None:
@@ -99,13 +128,15 @@ class ReviewerStore:
         self.prepared_root = prepared_root.resolve()
         self.candidate_root = candidate_root.resolve()
         self.internal_root = self.dataset_root / ".dataseg"
+        self.mask_archive_root = self.internal_root / "mask_archive"
         self.project_path = self.internal_root / "project.json"
         self.project = self._load_project()
+        self.mask_categories = MaskCategoryCatalog.from_project(self.project)
+        self.category_folders = self.mask_categories.folder_names
         self.project_id = str(self.project["project_id"])
         self.raw_data_dir = str(
             Path(self.project["raw_data_dir"]).resolve()
         )
-        self.vessel_only = vessel_only
         if not 0 <= sam2_before_frames <= 32:
             raise ValueError("sam2_before_frames must be between 0 and 32")
         if not 0 <= sam2_after_frames <= 32:
@@ -136,17 +167,17 @@ class ReviewerStore:
                 f"DataSeg project metadata is missing: {self.project_path}"
             )
         project = json.loads(self.project_path.read_text(encoding="utf-8"))
-        if project.get("schema_version") != PROJECT_SCHEMA_VERSION:
-            raise RuntimeError(
-                "Unsupported DataSeg output layout. Choose an empty output folder."
-            )
+        categories = MaskCategoryCatalog.from_project(project)
         if project.get("tool") != "dataseg":
             raise RuntimeError("The output folder is not a DataSeg project")
         if not str(project.get("project_id", "")).strip():
             raise RuntimeError("DataSeg project metadata is missing project_id")
         if not str(project.get("raw_data_dir", "")).strip():
             raise RuntimeError("DataSeg project metadata is missing raw_data_dir")
-        return project
+        upgraded = categories.write_to(project)
+        if upgraded != project:
+            atomic_write_json(self.project_path, upgraded)
+        return upgraded
 
     def _load_items(self) -> list[dict]:
         items: list[dict] = []
@@ -180,7 +211,7 @@ class ReviewerStore:
     def _load_state(self) -> dict:
         if self.state_path.exists():
             state = json.loads(self.state_path.read_text(encoding="utf-8"))
-            if state.get("schema_version") != PROJECT_SCHEMA_VERSION:
+            if state.get("schema_version") != REVIEWER_STATE_SCHEMA_VERSION:
                 raise RuntimeError(
                     "Unsupported reviewer state version. Choose an empty "
                     "output folder."
@@ -192,7 +223,7 @@ class ReviewerStore:
             state.setdefault("reviewed", {})
             return state
         return {
-            "schema_version": PROJECT_SCHEMA_VERSION,
+            "schema_version": REVIEWER_STATE_SCHEMA_VERSION,
             "project_id": self.project_id,
             "created_at": utc_now(),
             "reviewed": {},
@@ -209,34 +240,32 @@ class ReviewerStore:
             if item is None or not isinstance(entry, dict):
                 continue
             paths = self._dataset_paths(item)
-            if all(paths[name].is_file() for name in ("image", *LABELS)):
+            if paths["image_path"].is_file() and all(
+                mask_path.is_file() for mask_path in paths["masks"].values()
+            ):
                 valid[item_id] = entry
         if valid != reviewed:
             self.state["reviewed"] = valid
             atomic_write_json(self.state_path, self.state)
 
-    def _dataset_paths(self, item: dict) -> dict[str, Path]:
+    def _dataset_paths(self, item: dict) -> DatasetFramePaths:
         return {
-            "image": (
+            "image_path": (
                 self.dataset_root
                 / "images"
                 / item["clip"]
                 / item["source_name"]
             ),
-            "vessel": (
-                self.dataset_root
-                / "masks"
-                / "vessel"
-                / item["clip"]
-                / item["source_name"]
-            ),
-            "lesion": (
-                self.dataset_root
-                / "masks"
-                / "lesion"
-                / item["clip"]
-                / item["source_name"]
-            ),
+            "masks": {
+                folder_name: (
+                    self.dataset_root
+                    / "masks"
+                    / folder_name
+                    / item["clip"]
+                    / item["source_name"]
+                )
+                for folder_name in self.category_folders
+            },
         }
 
     def _write_manifests(self) -> None:
@@ -246,21 +275,24 @@ class ReviewerStore:
             if item["id"] not in reviewed:
                 continue
             paths = self._dataset_paths(item)
-            rows.append(
+            row = {
+                "id": item["id"],
+                "clip": item["clip"],
+                "frame_index": item["frame_index"],
+                "image": paths["image_path"]
+                .relative_to(self.dataset_root)
+                .as_posix(),
+            }
+            row.update(
                 {
-                    "id": item["id"],
-                    "clip": item["clip"],
-                    "frame_index": item["frame_index"],
-                    "image": paths["image"].relative_to(self.dataset_root).as_posix(),
-                    "vessel_mask": paths["vessel"]
+                    f"{folder_name}_mask": paths["masks"][folder_name]
                     .relative_to(self.dataset_root)
-                    .as_posix(),
-                    "lesion_mask": paths["lesion"]
-                    .relative_to(self.dataset_root)
-                    .as_posix(),
-                    "saved_at": reviewed[item["id"]]["saved_at"],
+                    .as_posix()
+                    for folder_name in self.category_folders
                 }
             )
+            row["saved_at"] = reviewed[item["id"]]["saved_at"]
+            rows.append(row)
 
         jsonl = "".join(
             json.dumps(row, ensure_ascii=False) + "\n" for row in rows
@@ -276,8 +308,7 @@ class ReviewerStore:
             "clip",
             "frame_index",
             "image",
-            "vessel_mask",
-            "lesion_mask",
+            *(f"{folder_name}_mask" for folder_name in self.category_folders),
             "saved_at",
         ]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -309,11 +340,299 @@ class ReviewerStore:
                 "raw_data_dir": self.raw_data_dir,
                 "output_dir": str(self.dataset_root),
                 "dataset_root": str(self.dataset_root),
-                "vessel_only": self.vessel_only,
+                "mask_categories": [
+                    category.to_dict() for category in self.mask_categories.active
+                ],
+                "archived_mask_categories": [
+                    category.to_public_dict()
+                    for category in self.mask_categories.archived
+                ],
                 "sam2_before_frames": self.sam2_before_frames,
                 "sam2_after_frames": self.sam2_after_frames,
                 "items": items,
             }
+
+    def add_mask_category(self, payload: dict) -> dict[str, object]:
+        """Validate, persist, and activate one project-owned Mask category."""
+        if not isinstance(payload, dict):
+            raise ValueError("Mask category payload must be an object")
+        with self.lock:
+            archive_action = payload.get("archive_action")
+            if archive_action not in {None, "start_empty"}:
+                raise ValueError(
+                    "Mask category archive_action must be start_empty when provided"
+                )
+            try:
+                updated_catalog = self.mask_categories.add(payload)
+            except RuntimeError as error:
+                raise ValueError(str(error)) from error
+
+            category = updated_catalog.active[-1]
+            archived_matches = self.mask_categories.archives_for_folder(
+                category.folder_name
+            )
+            if archived_matches and archive_action != "start_empty":
+                raise MaskCategoryConflictError(
+                    "archived_folder_conflict: this folder belongs to an archived "
+                    "Mask category. Restore it or explicitly start empty.",
+                    code="archived_folder_conflict",
+                    archives=[
+                        archived.to_public_dict() for archived in archived_matches
+                    ],
+                )
+            if archive_action == "start_empty" and not archived_matches:
+                raise ValueError(
+                    "archive_action start_empty requires an archived category "
+                    "with the same folder name"
+                )
+            masks_root = self.dataset_root / "masks"
+            category_root = self.dataset_root / "masks" / category.folder_name
+            if category_root.exists() and not category_root.is_dir():
+                raise ValueError(
+                    f"Mask category folder is not a directory: {category.folder_name}"
+                )
+            if category_root.exists():
+                raise ValueError(
+                    "Mask category folder already exists. Restore the archived "
+                    "category or choose another folder name."
+                )
+
+            updated_project = updated_catalog.write_to(self.project)
+            masks_root_preexisting = masks_root.exists()
+            masks_root.mkdir(parents=True, exist_ok=True)
+            staging_root = Path(
+                tempfile.mkdtemp(
+                    dir=masks_root,
+                    prefix=f".{category.folder_name}.staging-",
+                )
+            )
+            category_activated = False
+            previous_project = self.project
+            previous_catalog = self.mask_categories
+            previous_folders = self.category_folders
+            snapshots = self._file_snapshots(self._catalog_transaction_files())
+            reviewed_items = [
+                item
+                for item in self.all_items
+                if item["id"] in self.state["reviewed"]
+            ]
+            try:
+                for item in reviewed_items:
+                    with Image.open(Path(item["source_path"])) as source:
+                        empty_mask = Image.new("L", source.size, color=0)
+                    atomic_save_png(
+                        staging_root / item["clip"] / item["source_name"],
+                        empty_mask,
+                    )
+                os.replace(staging_root, category_root)
+                category_activated = True
+                atomic_write_json(self.project_path, updated_project)
+                self.project = updated_project
+                self.mask_categories = updated_catalog
+                self.category_folders = updated_catalog.folder_names
+                self._write_manifests()
+            except Exception:
+                self.project = previous_project
+                self.mask_categories = previous_catalog
+                self.category_folders = previous_folders
+                if category_activated:
+                    shutil.rmtree(category_root, ignore_errors=True)
+                shutil.rmtree(staging_root, ignore_errors=True)
+                self._restore_file_snapshots(snapshots)
+                if not masks_root_preexisting:
+                    try:
+                        masks_root.rmdir()
+                    except OSError:
+                        pass
+                raise
+
+            category_value = category.to_dict()
+            return {
+                **category_value,
+                "category": category_value,
+                "backfilled_count": len(reviewed_items),
+            }
+
+    def _archive_storage_path(self, archive_path: str) -> Path:
+        """Resolve a validated project archive path without allowing escape."""
+        parts = archive_path.split("/")
+        if len(parts) != 3 or parts[:2] != [".dataseg", "mask_archive"]:
+            raise ValueError("Mask category archive metadata is invalid")
+        archive_root = self.mask_archive_root.resolve()
+        candidate = (self.dataset_root / Path(*parts)).resolve()
+        try:
+            relative = candidate.relative_to(archive_root)
+        except ValueError as error:
+            raise ValueError(
+                "Mask category archive metadata is outside the project archive"
+            ) from error
+        if len(relative.parts) != 1:
+            raise ValueError("Mask category archive metadata is invalid")
+        return candidate
+
+    @staticmethod
+    def _file_snapshots(paths: tuple[Path, ...]) -> dict[Path, bytes | None]:
+        return {
+            path: path.read_bytes() if path.is_file() else None
+            for path in paths
+        }
+
+    @staticmethod
+    def _restore_file_snapshots(snapshots: dict[Path, bytes | None]) -> None:
+        """Restore transaction files without depending on patched write helpers."""
+        for path, payload in snapshots.items():
+            if payload is None:
+                path.unlink(missing_ok=True)
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+
+    def _catalog_transaction_files(self) -> tuple[Path, ...]:
+        return (
+            self.project_path,
+            self.dataset_root / "annotation_manifest.jsonl",
+            self.dataset_root / "annotation_manifest.csv",
+        )
+
+    def archive_mask_category(self, folder_name: str) -> dict[str, str]:
+        """Archive one active category and move all of its Mask data atomically."""
+        with self.lock:
+            archive_id = uuid.uuid4().hex
+            try:
+                updated_catalog, archived = self.mask_categories.archive(
+                    folder_name,
+                    archive_id,
+                    utc_now(),
+                )
+            except RuntimeError as error:
+                raise ValueError(str(error)) from error
+
+            source_root = self.dataset_root / "masks" / archived.folder_name
+            if not source_root.is_dir():
+                raise ValueError(
+                    f"Mask category data folder is missing: {archived.folder_name}"
+                )
+            archive_root_preexisting = self.mask_archive_root.exists()
+            self.mask_archive_root.mkdir(parents=True, exist_ok=True)
+            destination_root = self._archive_storage_path(archived.archive_path)
+            if destination_root.exists():
+                raise ValueError("Mask category archive identifier already exists")
+
+            previous_project = self.project
+            previous_catalog = self.mask_categories
+            previous_folders = self.category_folders
+            updated_project = updated_catalog.write_to(self.project)
+            snapshots = self._file_snapshots(self._catalog_transaction_files())
+            moved = False
+            try:
+                os.replace(source_root, destination_root)
+                moved = True
+                atomic_write_json(self.project_path, updated_project)
+                self.project = updated_project
+                self.mask_categories = updated_catalog
+                self.category_folders = updated_catalog.folder_names
+                self._write_manifests()
+            except Exception:
+                self.project = previous_project
+                self.mask_categories = previous_catalog
+                self.category_folders = previous_folders
+                if moved and destination_root.exists() and not source_root.exists():
+                    source_root.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(destination_root, source_root)
+                self._restore_file_snapshots(snapshots)
+                if not archive_root_preexisting:
+                    try:
+                        self.mask_archive_root.rmdir()
+                    except OSError:
+                        pass
+                raise
+
+            return archived.to_public_dict()
+
+    def restore_mask_category(self, archive_id: str) -> dict[str, str]:
+        """Restore one archived category with its original metadata and Masks."""
+        with self.lock:
+            try:
+                updated_catalog, archived = self.mask_categories.restore(archive_id)
+            except RuntimeError as error:
+                raise ValueError(str(error)) from error
+
+            source_root = self._archive_storage_path(archived.archive_path)
+            if not source_root.is_dir():
+                raise ValueError("Mask category archive data is missing")
+            destination_root = (
+                self.dataset_root / "masks" / archived.folder_name
+            )
+            if destination_root.exists():
+                raise MaskCategoryConflictError(
+                    "active_folder_conflict: the active Mask folder already exists",
+                    code="active_folder_conflict",
+                )
+
+            previous_project = self.project
+            previous_catalog = self.mask_categories
+            previous_folders = self.category_folders
+            updated_project = updated_catalog.write_to(self.project)
+            snapshots = self._file_snapshots(self._catalog_transaction_files())
+            moved = False
+            try:
+                destination_root.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(source_root, destination_root)
+                moved = True
+                atomic_write_json(self.project_path, updated_project)
+                self.project = updated_project
+                self.mask_categories = updated_catalog
+                self.category_folders = updated_catalog.folder_names
+                self._write_manifests()
+            except Exception:
+                self.project = previous_project
+                self.mask_categories = previous_catalog
+                self.category_folders = previous_folders
+                if moved and destination_root.exists() and not source_root.exists():
+                    source_root.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(destination_root, source_root)
+                self._restore_file_snapshots(snapshots)
+                raise
+
+            try:
+                self.mask_archive_root.rmdir()
+            except OSError:
+                pass
+            category = next(
+                category
+                for category in updated_catalog.active
+                if category.folder_name == archived.folder_name
+            )
+            return category.to_dict()
+
+    def update_mask_category(
+        self,
+        folder_name: str,
+        payload: dict,
+    ) -> dict[str, str]:
+        """Persist mutable metadata for one active Mask category."""
+        if not isinstance(payload, dict):
+            raise ValueError("Mask category update payload must be an object")
+        with self.lock:
+            try:
+                updated_catalog = self.mask_categories.update(
+                    folder_name,
+                    payload,
+                )
+            except RuntimeError as error:
+                raise ValueError(str(error)) from error
+
+            updated_project = updated_catalog.write_to(self.project)
+            atomic_write_json(self.project_path, updated_project)
+            self.project = updated_project
+            self.mask_categories = updated_catalog
+            self.category_folders = updated_catalog.folder_names
+            category = next(
+                category
+                for category in updated_catalog.active
+                if category.folder_name == folder_name.strip()
+            )
+            return category.to_dict()
 
     def item(self, index: int) -> dict:
         if index < 0 or index >= len(self.items):
@@ -369,10 +688,8 @@ class ReviewerStore:
         ):
             raise ValueError("SAM2 propagation ranges must be integers")
         label = payload.get("label")
-        if label not in LABELS:
-            raise ValueError("SAM2 propagation label must be vessel or lesion")
-        if self.vessel_only and label == "lesion":
-            raise ValueError("This project only supports vessel masks")
+        if label not in self.category_folders:
+            raise ValueError("SAM2 propagation category is not active")
         with Image.open(self.image_path(index)) as source:
             expected_size = source.size
         try:
@@ -417,13 +734,10 @@ class ReviewerStore:
         return Path(self.item(index)["source_path"])
 
     def mask_image(self, index: int, label: str, candidate_only: bool) -> Image.Image:
-        if label not in LABELS:
+        if label not in self.category_folders:
             raise ValueError(label)
-        if self.vessel_only and label == "lesion":
-            with Image.open(self.image_path(index)) as source:
-                return Image.new("L", source.size, color=0)
         item = self.item(index)
-        reviewed_path = self._dataset_paths(item)[label]
+        reviewed_path = self._dataset_paths(item)["masks"][label]
         candidate_path = (
             self.candidate_root / item["clip"] / "masks" / label / item["source_name"]
         )
@@ -436,6 +750,8 @@ class ReviewerStore:
 
     @staticmethod
     def _decode_mask(data_url: str, expected_size: tuple[int, int]) -> Image.Image:
+        if not isinstance(data_url, str):
+            raise ValueError("Mask must be a PNG data URL")
         prefix = "data:image/png;base64,"
         if not data_url.startswith(prefix):
             raise ValueError("Mask must be a PNG data URL")
@@ -448,26 +764,30 @@ class ReviewerStore:
                 )
             return mask.point(lambda value: 255 if value >= 128 else 0, mode="L")
 
-    def _apply_mask_policy(
-        self,
-        masks: dict[str, Image.Image],
-        expected_size: tuple[int, int],
-    ) -> dict[str, Image.Image]:
-        if self.vessel_only:
-            masks["lesion"] = Image.new("L", expected_size, color=0)
-        return masks
+    def _mask_payloads(self, payload: dict, context: str) -> dict:
+        if not isinstance(payload, dict):
+            raise ValueError(f"{context} must be an object")
+        nested = payload.get("masks")
+        if isinstance(nested, dict):
+            return nested
+        return payload
 
     def save(self, index: int, payload: dict) -> dict:
+        if not self.category_folders:
+            raise ValueError("Add a Mask category before saving")
         item = self.item(index)
         with Image.open(self.image_path(index)) as source:
             expected_size = source.size
-        masks = self._apply_mask_policy(
-            {
-                label: self._decode_mask(payload[label], expected_size)
-                for label in LABELS
-            },
-            expected_size,
-        )
+        mask_payloads = self._mask_payloads(payload, "Save payload")
+        try:
+            masks = {
+                folder_name: self._decode_mask(
+                    mask_payloads[folder_name], expected_size
+                )
+                for folder_name in self.category_folders
+            }
+        except KeyError as error:
+            raise ValueError(f"Save payload is missing mask {error.args[0]}") from error
 
         with self.lock:
             self._write_item_files(index, item, masks)
@@ -490,6 +810,8 @@ class ReviewerStore:
         overwrite_reviewed: bool = False,
         keyframe_index: int | None = None,
     ) -> dict:
+        if not self.category_folders:
+            raise ValueError("Add a Mask category before saving")
         if not isinstance(entries, list) or not 1 <= len(entries) <= 64:
             raise ValueError("Select between 1 and 64 frames")
         if not isinstance(overwrite_reviewed, bool):
@@ -531,14 +853,14 @@ class ReviewerStore:
             with Image.open(self.image_path(index)) as source:
                 expected_size = source.size
             entry = entries_by_index[index]
+            mask_payloads = self._mask_payloads(entry, f"Batch entry {index}")
             try:
-                masks = self._apply_mask_policy(
-                    {
-                        label: self._decode_mask(entry[label], expected_size)
-                        for label in LABELS
-                    },
-                    expected_size,
-                )
+                masks = {
+                    folder_name: self._decode_mask(
+                        mask_payloads[folder_name], expected_size
+                    )
+                    for folder_name in self.category_folders
+                }
             except KeyError as error:
                 raise ValueError(
                     f"Batch entry {index} is missing mask {error.args[0]}"
@@ -602,11 +924,12 @@ class ReviewerStore:
         masks: dict[str, Image.Image],
     ) -> None:
         paths = self._dataset_paths(item)
-        paths["image"].parent.mkdir(parents=True, exist_ok=True)
-        if not paths["image"].exists():
+        image_path = paths["image_path"]
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        if not image_path.exists():
             handle = tempfile.NamedTemporaryFile(
-                dir=paths["image"].parent,
-                prefix=f".{paths['image'].name}.",
+                dir=image_path.parent,
+                prefix=f".{image_path.name}.",
                 suffix=".tmp",
                 delete=False,
             )
@@ -614,12 +937,12 @@ class ReviewerStore:
             handle.close()
             try:
                 shutil.copy2(self.image_path(index), temp_path)
-                os.replace(temp_path, paths["image"])
+                os.replace(temp_path, image_path)
             finally:
                 temp_path.unlink(missing_ok=True)
 
-        for label in LABELS:
-            atomic_save_png(paths[label], masks[label])
+        for folder_name in self.category_folders:
+            atomic_save_png(paths["masks"][folder_name], masks[folder_name])
 
     def _mark_reviewed(self, item: dict, saved_at: str, source: str) -> None:
         review_entry = {
@@ -663,6 +986,16 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _send_category_conflict(self, error: MaskCategoryConflictError) -> None:
+        self._send_json(
+            {
+                "error": str(error),
+                "code": error.code,
+                "archives": error.archives,
+            },
+            HTTPStatus.CONFLICT,
+        )
+
     def _send_png(self, image: Image.Image) -> None:
         output = io.BytesIO()
         image.save(output, format="PNG")
@@ -696,7 +1029,14 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                         "project_id": self.store.project_id,
                         "raw_data_dir": self.store.raw_data_dir,
                         "output_dir": str(self.store.dataset_root),
-                        "vessel_only": self.store.vessel_only,
+                        "mask_categories": [
+                            category.to_dict()
+                            for category in self.store.mask_categories.active
+                        ],
+                        "archived_mask_categories": [
+                            category.to_public_dict()
+                            for category in self.store.mask_categories.archived
+                        ],
                         "sam2_before_frames": self.store.sam2_before_frames,
                         "sam2_after_frames": self.store.sam2_after_frames,
                     }
@@ -797,6 +1137,30 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     )
                 )
                 return
+            if parsed.path == "/api/mask-categories":
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 10_000:
+                    raise ValueError("Invalid request size")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send_json(
+                    self.store.add_mask_category(payload),
+                    HTTPStatus.CREATED,
+                )
+                return
+            if (
+                len(parts) == 4
+                and parts[:2] == ["api", "mask-archives"]
+                and parts[3] == "restore"
+            ):
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 0 or length > 10_000:
+                    raise ValueError("Invalid request size")
+                if length:
+                    json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send_json(
+                    self.store.restore_mask_category(parts[2]),
+                )
+                return
             if parsed.path == "/api/batch/save":
                 length = int(self.headers.get("Content-Length", "0"))
                 if length <= 0 or length > 20_000_000:
@@ -823,24 +1187,102 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     self._send_json(self.store.save(index, payload))
                     return
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
-        except (IndexError, ValueError, KeyError, json.JSONDecodeError) as error:
+        except MaskCategoryConflictError as error:
+            self._send_category_conflict(error)
+        except (
+            IndexError,
+            ValueError,
+            RuntimeError,
+            KeyError,
+            json.JSONDecodeError,
+        ) as error:
+            self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+        except Exception as error:
+            self._send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        parts = [part for part in parsed.path.split("/") if part]
+        try:
+            received_project = self.headers.get("X-DataSeg-Project", "")
+            if (
+                not received_project
+                or not hmac.compare_digest(
+                    received_project,
+                    self.store.project_id,
+                )
+            ):
+                self._send_json(
+                    {
+                        "error": (
+                            "浏览器页面属于另一个标定项目，"
+                            "请从 DataSeg 启动器重新打开。"
+                        )
+                    },
+                    HTTPStatus.CONFLICT,
+                )
+                return
+            if len(parts) != 3 or parts[:2] != ["api", "mask-categories"]:
+                self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_json(self.store.archive_mask_category(parts[2]))
+        except MaskCategoryConflictError as error:
+            self._send_category_conflict(error)
+        except (ValueError, RuntimeError, KeyError) as error:
+            self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+        except Exception as error:
+            self._send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def do_PATCH(self) -> None:
+        parsed = urlparse(self.path)
+        parts = [part for part in parsed.path.split("/") if part]
+        try:
+            received_project = self.headers.get("X-DataSeg-Project", "")
+            if (
+                not received_project
+                or not hmac.compare_digest(
+                    received_project,
+                    self.store.project_id,
+                )
+            ):
+                self._send_json(
+                    {
+                        "error": (
+                            "浏览器页面属于另一个标定项目，"
+                            "请从 DataSeg 启动器重新打开。"
+                        )
+                    },
+                    HTTPStatus.CONFLICT,
+                )
+                return
+            if len(parts) != 3 or parts[:2] != ["api", "mask-categories"]:
+                self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 10_000:
+                raise ValueError("Invalid request size")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            self._send_json(
+                self.store.update_mask_category(parts[2], payload),
+            )
+        except (
+            ValueError,
+            RuntimeError,
+            KeyError,
+            json.JSONDecodeError,
+        ) as error:
             self._send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
         except Exception as error:
             self._send_json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Local vessel and lesion mask reviewer")
+    parser = argparse.ArgumentParser(description="Local Mask category reviewer")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--dataset-root", type=Path, default=DEFAULT_DATASET_ROOT)
     parser.add_argument("--prepared-root", type=Path, default=PREPARED_ROOT)
     parser.add_argument("--candidate-root", type=Path, default=CANDIDATE_ROOT)
-    parser.add_argument(
-        "--vessel-only",
-        action="store_true",
-        help="Force lesion masks to remain empty on every read and save.",
-    )
     parser.add_argument("--sam2-checkpoint", type=Path)
     parser.add_argument(
         "--sam2-model-config",
@@ -874,7 +1316,6 @@ def main() -> None:
         prepared_root=args.prepared_root,
         candidate_root=args.candidate_root,
         included_clips=set(args.included_clips or []),
-        vessel_only=args.vessel_only,
         sam2_before_frames=args.sam2_before,
         sam2_after_frames=args.sam2_after,
     )

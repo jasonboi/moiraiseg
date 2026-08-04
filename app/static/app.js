@@ -1,25 +1,70 @@
-const LABELS = ["vessel", "lesion"];
 const DEFAULT_SAM2_BEFORE_FRAMES = 4;
 const DEFAULT_SAM2_AFTER_FRAMES = 16;
+const MAX_MASK_CATEGORIES = 5;
+const MASK_OVERLAY_ALPHA = 0.44;
+const MASK_CATEGORY_COLOR_CANDIDATES = Object.freeze([
+  "#0072B2",
+  "#D55E00",
+  "#009E73",
+  "#CC79A7",
+  "#E69F00",
+]);
 const LANGUAGE_STORAGE_KEY = "dataseg-language";
 const ENGLISH_TEXT = {
   "English": "中文",
   "切换为英文": "Switch to Chinese",
+  "Mask 类别": "Mask categories",
+  "添加": "Add",
+  "管理": "Manage",
+  "编辑": "Edit",
+  "删除": "Delete",
+  "隐藏": "Hide",
+  "显示": "Show",
+  "归档恢复": "Archive recovery",
+  "暂无归档类别": "No archived categories",
+  "归档的 Mask 类别": "Archived Mask categories",
+  "归档类别保存在当前项目中，可以恢复原有 Mask。": "Archived categories stay in this project and can restore their original Masks.",
+  "恢复": "Restore",
+  "正在恢复…": "Restoring…",
+  "归档时间": "Archived",
+  "关闭归档列表": "Close archive list",
+  "发现同名归档": "Archived data found",
+  "这个文件夹已有归档数据。选择恢复旧数据，或保留归档并以当前输入新建空类别。": "This folder already has archived data. Restore the old data, or keep the archive and create an empty category from the current input.",
+  "恢复旧数据": "Restore old data",
+  "以当前输入新建空类别": "Create empty category",
+  "返回编辑": "Back to editing",
+  "正在归档…": "Archiving…",
+  "当前帧有未保存修改，请先保存或丢弃后再管理类别。": "This frame has unsaved changes. Save or discard them before managing categories.",
+  "类别操作正在进行，请稍后再试。": "A category operation is in progress. Try again when it finishes.",
+  "活动类别已达到 5 个，请先归档一个类别再恢复。": "There are already 5 active categories. Archive one before restoring another.",
+  "归档列表为空。": "The archive is empty.",
+  "编辑 Mask 类别": "Edit Mask category",
+  "名称和颜色会立即更新。文件夹名保持不变。": "The name and color update immediately. The folder name stays unchanged.",
+  "保存修改": "Save changes",
+  "正在更新…": "Updating…",
+  "删除类别将在归档功能完成后启用。": "Category deletion will be enabled with archive recovery.",
+  "还没有 Mask 类别。先定义要标记的内容。": "No Mask categories yet. Define what you want to annotate first.",
+  "添加第一个类别": "Add first category",
+  "添加 Mask 类别": "Add Mask category",
+  "名称显示在标定界面中。文件夹名保存后不能修改。": "The name appears in the annotation UI. The folder name cannot be changed after saving.",
+  "UI 中的名字": "UI name",
+  "文件夹名字": "Folder name",
+  "标记颜色": "Annotation color",
+  "小写字母开头，只能使用小写字母、数字、下划线和连字符。": "Start with a lowercase letter. Use lowercase letters, numbers, underscores, and hyphens only.",
+  "覆盖透明度固定为 44%": "Overlay opacity is fixed at 44%",
+  "取消": "Cancel",
+  "添加类别": "Add category",
+  "例如：神经": "For example: nerve",
+  "例如：nerve": "For example: nerve",
   "Mask 编辑画布": "Mask editing canvas",
   "等待图像": "Waiting for image",
-  "血管 Mask": "Vessel Mask",
-  "肿瘤 Mask": "Lesion Mask",
   "添加 Mask 方式": "Mask drawing mode",
   "套索": "Lasso",
   "画笔": "Brush",
   "橡皮 ·": "Eraser ·",
-  "血管": "Vessel",
-  "肿瘤": "Lesion",
   "按住并沿边界圈画，松开后自动闭合并填充。": "Hold and trace the boundary. Release to close and fill.",
   "沿目标边界圈画，松开后自动闭合并填充。": "Trace the target boundary. Release to close and fill.",
   "按住鼠标直接填涂，适合横断面和局部补画。": "Hold the pointer to paint cross-sections or make local corrections.",
-  "显示血管": "Show vessel",
-  "显示肿瘤": "Show lesion",
   "画笔 / 橡皮大小": "Brush / eraser size",
   "画笔或橡皮大小": "Brush or eraser size",
   "缩放": "Zoom",
@@ -41,7 +86,6 @@ const ENGLISH_TEXT = {
   "序号": "Position",
   "← 上一张": "← Previous",
   "下一张 →": "Next →",
-  "SAM2 传播血管": "Propagate vessel with SAM2",
   "仅保存当前帧": "Save current frame",
   "保存并下一张": "Save and continue",
   "撤销": "Undo",
@@ -84,13 +128,11 @@ const ENGLISH_TEXT = {
   "未保存修改": "Unsaved changes",
   "已同步": "Synced",
   "正在保存…": "Saving…",
-  "本批次只标注血管，lesion 已由后端固定为全黑": "This project labels vessels only. The backend keeps lesion Masks empty.",
   "当前修改还没有保存，确定离开这张图吗？": "The current changes are unsaved. Leave this image?",
   "正在载入图像和 Mask…": "Loading image and Masks…",
   "已载入保存后的审核 Mask": "Loaded the saved reviewed Mask",
   "已载入预识别 Mask": "Loaded the candidate Mask",
   "SAM2 返回了未知的 Mask 类别": "SAM2 returned an unknown Mask label.",
-  "本项目只标注血管，不能传播肿瘤 Mask": "This project labels vessels only, so lesion Masks cannot be propagated.",
   "当前已审核帧有新修改，请先按 S 保存，再按 P 传播": "This reviewed frame has unsaved changes. Press S to save, then P to propagate.",
   "SAM2 关键帧传播失败": "SAM2 keyframe propagation failed.",
   "没有可以审核的传播帧。": "No propagated frames are available for review.",
@@ -134,38 +176,44 @@ const ENGLISH_TEXT = {
 const originalText = new WeakMap();
 const originalAttributes = new WeakMap();
 
-function languageLabel(label) {
-  return label === "肿瘤" ? "lesion" : "vessel";
-}
-
 function englishDynamicText(value) {
   const exact = ENGLISH_TEXT[value];
   if (exact) return exact;
   const rules = [
-    [/^按住鼠标擦除(血管|肿瘤) Mask。$/, (match, label) => `Hold the pointer to erase the ${languageLabel(label)} Mask.`],
-    [/^SAM2 传播(血管|肿瘤)$/, (match, label) => `Propagate ${languageLabel(label)} with SAM2`],
+    [/^显示或隐藏 (.+)$/, (match, label) => `Show or hide ${label}`],
+    [/^选择 (.+)，快捷键 (\d+)$/, (match, label, key) => `Select ${label}, shortcut ${key}`],
+    [/^(隐藏|显示) (.+) Mask$/, (match, action, label) => `${action === "隐藏" ? "Hide" : "Show"} ${label} Mask`],
+    [/^管理 (.+)$/, (match, label) => `Manage ${label}`],
+    [/^已添加 (.+) Mask$/, (match, label) => `Added the ${label} Mask`],
+    [/^已更新 (.+) Mask$/, (match, label) => `Updated the ${label} Mask`],
+    [/^已归档 (.+) Mask，可从归档恢复$/, (match, label) => `Archived the ${label} Mask. You can restore it from Archive recovery.`],
+    [/^已恢复 (.+) Mask 和归档数据$/, (match, label) => `Restored the ${label} Mask and its archived data.`],
+    [/^(\d+) 个归档$/, "$1 archived"],
+    [/^查看 (\d+) 个归档类别$/, "View $1 archived categories"],
+    [/^按住鼠标擦除(.+) Mask。$/, (match, label) => `Hold the pointer to erase the ${label} Mask.`],
+    [/^SAM2 传播(.+)$/, (match, label) => `Propagate ${label} with SAM2`],
     [/^(\d+) 帧已选$/, "$1 frames selected"],
     [/^帧 (\d+)$/, "Frame $1"],
     [/^(选择|已审核参考)帧 (\d+)$/, (match, action, frame) => `${action === "选择" ? "Select" : "Reviewed reference"} frame ${frame}`],
     [/^帧 (\d+) · (只读参考|Mask 微调)$/, (match, frame, mode) => `Frame ${frame} · ${ENGLISH_TEXT[mode]}`],
     [/^放大(微调|查看)帧 (\d+)$/, (match, action, frame) => `${action === "微调" ? "Edit" : "View"} frame ${frame}`],
     [/^(.*) 第 (\d+) 帧候选 Mask$/, (match, clip, frame) => `${clip}, candidate Mask for frame ${frame}`],
-    [/^正在用套索添加(血管|肿瘤) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Adding the ${languageLabel(label)} Mask with the lasso. Changes stay in this preview until confirmed.`],
-    [/^正在用画笔填涂(血管|肿瘤) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Painting the ${languageLabel(label)} Mask. Changes stay in this preview until confirmed.`],
-    [/^正在擦除(血管|肿瘤) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Erasing the ${languageLabel(label)} Mask. Changes stay in this preview until confirmed.`],
-    [/^当前(血管|肿瘤) Mask 为空。请先用套索或画笔标出目标，再按 P 传播$/, (match, label) => `The current ${languageLabel(label)} Mask is empty. Mark the target with the lasso or brush, then press P.`],
-    [/^正在传播当前帧(血管|肿瘤) Mask…$/, (match, label) => `Propagating the current ${languageLabel(label)} Mask…`],
-    [/^SAM2 (血管|肿瘤)传播预览$/, (match, label) => `SAM2 ${languageLabel(label)} propagation preview`],
-    [/^人工关键帧 · (血管|肿瘤)双向传播$/, (match, label) => `Manual keyframe · bidirectional ${languageLabel(label)} propagation`],
-    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(血管|肿瘤) Mask。另一类 Mask 保留每帧原有内容。关键帧之前的已审核帧始终受保护。需要重写向后传播结果时，请开启“允许覆盖向后已审核帧”并手动勾选。$/, (match, before, after, label) => `SAM2 propagated the ${languageLabel(label)} Mask ${before} previous frames and ${after} following frames from the current keyframe. The other Mask label keeps each frame's existing content. Reviewed frames before the keyframe always stay protected. To replace following propagation results, enable “Allow overwriting following reviewed frames” and select them manually.`],
-    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(血管|肿瘤) Mask。另一类 Mask 保留每帧原有内容。关键帧之前的已审核帧仍受保护。只有手动勾选的向后已审核帧会被重写。$/, (match, before, after, label) => `SAM2 propagated the ${languageLabel(label)} Mask ${before} previous frames and ${after} following frames from the current keyframe. The other Mask label keeps each frame's existing content. Reviewed frames before the keyframe remain protected. Only selected reviewed frames after the keyframe will be replaced.`],
+    [/^正在用套索添加(.+) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Adding the ${label} Mask with the lasso. Changes stay in this preview until confirmed.`],
+    [/^正在用画笔填涂(.+) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Painting the ${label} Mask. Changes stay in this preview until confirmed.`],
+    [/^正在擦除(.+) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Erasing the ${label} Mask. Changes stay in this preview until confirmed.`],
+    [/^当前(.+) Mask 为空。请先用套索或画笔标出目标，再按 P 传播$/, (match, label) => `The current ${label} Mask is empty. Mark the target with the lasso or brush, then press P.`],
+    [/^正在传播当前帧(.+) Mask…$/, (match, label) => `Propagating the current ${label} Mask…`],
+    [/^SAM2 (.+)传播预览$/, (match, label) => `SAM2 ${label} propagation preview`],
+    [/^人工关键帧 · (.+)双向传播$/, (match, label) => `Manual keyframe · bidirectional ${label} propagation`],
+    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(.+) Mask。其它活动类别保留每帧原有内容。关键帧之前的已审核帧始终受保护。需要重写向后传播结果时，请开启“允许覆盖向后已审核帧”并手动勾选。$/, (match, before, after, label) => `SAM2 propagated the ${label} Mask ${before} previous frames and ${after} following frames from the current keyframe. Other active Mask categories keep each frame's existing content. Reviewed frames before the keyframe always stay protected. To replace following propagation results, enable “Allow overwriting following reviewed frames” and select them manually.`],
+    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(.+) Mask。其它活动类别保留每帧原有内容。关键帧之前的已审核帧仍受保护。只有手动勾选的向后已审核帧会被重写。$/, (match, before, after, label) => `SAM2 propagated the ${label} Mask ${before} previous frames and ${after} following frames from the current keyframe. Other active Mask categories keep each frame's existing content. Reviewed frames before the keyframe remain protected. Only selected reviewed frames after the keyframe will be replaced.`],
     [/^通过选中 (\d+) 帧$/, "Accept $1 selected frames"],
     [/^确认保存这 (\d+) 帧 SAM2 传播预览中的 Mask 吗？(.*)$/s, (match, count, warning) => `Save the Masks from these ${count} SAM2 propagation preview frames?${englishText(warning)}`],
     [/^另有 (\d+) 张已微调帧未勾选，这些修改会被丢弃。$/, "$1 edited frames are not selected. Their changes will be discarded."],
     [/^其中 (\d+) 张已审核帧将被覆盖，原 Mask 会被替换。$/, "$1 reviewed frames will be overwritten and their existing Masks will be replaced."],
-    [/^已保存 (\d+) 帧 SAM2 (血管|肿瘤)传播 Mask，取消勾选的帧仍保留待审核$/, (match, count, label) => `Saved SAM2 ${languageLabel(label)} Masks for ${count} frames. Unselected frames remain pending.`],
-    [/^已保存 (\d+) 帧 SAM2 (血管|肿瘤)传播 Mask，其中 (\d+) 张已审核帧已覆盖$/, (match, count, label, overwritten) => `Saved SAM2 ${languageLabel(label)} Masks for ${count} frames and overwrote ${overwritten} reviewed frames.`],
-    [/^(已套索填充|已画笔填涂|已擦除)(血管|肿瘤) Mask，按 Enter 保存$/, (match, action, label) => `${ENGLISH_TEXT[action]}${languageLabel(label)} Mask. Press Enter to save.`],
+    [/^已保存 (\d+) 帧 SAM2 (.+)传播 Mask，取消勾选的帧仍保留待审核$/, (match, count, label) => `Saved SAM2 ${label} Masks for ${count} frames. Unselected frames remain pending.`],
+    [/^已保存 (\d+) 帧 SAM2 (.+)传播 Mask，其中 (\d+) 张已审核帧已覆盖$/, (match, count, label, overwritten) => `Saved SAM2 ${label} Masks for ${count} frames and overwrote ${overwritten} reviewed frames.`],
+    [/^(已套索填充|已画笔填涂|已擦除)(.+) Mask，按 Enter 保存$/, (match, action, label) => `${ENGLISH_TEXT[action]}${label} Mask. Press Enter to save.`],
   ];
   for (const [pattern, replacement] of rules) {
     if (pattern.test(value)) return value.replace(pattern, replacement);
@@ -198,7 +246,9 @@ function translateElementAttributes(element) {
 
 function translateTree(root) {
   if (!root) return;
+  if (root.nodeType === Node.ELEMENT_NODE && root.closest?.("[data-no-translate]")) return;
   if (root.nodeType === Node.TEXT_NODE) {
+    if (root.parentElement?.closest("[data-no-translate]")) return;
     const translated = englishText(root.nodeValue);
     if (translated !== root.nodeValue) {
       originalText.set(root, root.nodeValue);
@@ -210,6 +260,10 @@ function translateTree(root) {
   translateElementAttributes(root);
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
   while (walker.nextNode()) {
+    const element = walker.currentNode.nodeType === Node.ELEMENT_NODE
+      ? walker.currentNode
+      : walker.currentNode.parentElement;
+    if (element?.closest?.("[data-no-translate]")) continue;
     if (walker.currentNode.nodeType === Node.TEXT_NODE) {
       const translated = englishText(walker.currentNode.nodeValue);
       if (translated !== walker.currentNode.nodeValue) {
@@ -249,17 +303,17 @@ const state = {
   index: 0,
   currentItem: null,
   sourceImage: null,
-  masks: { vessel: null, lesion: null },
+  masks: {},
   history: [],
   dirty: false,
   loading: false,
   saving: false,
-  activeLabel: "vessel",
+  activeLabel: null,
   tool: "lasso",
   addTool: "lasso",
   brushSize: 24,
   zoom: 1,
-  overlayVisible: { vessel: true, lesion: true },
+  overlayVisible: {},
   displayCanvas: null,
   stage: null,
   viewport: null,
@@ -269,7 +323,7 @@ const state = {
   lassoPoints: [],
   strokePoints: [],
   batch: {
-    propagatedLabel: "vessel",
+    propagatedLabel: null,
     requestId: 0,
     open: false,
     loading: false,
@@ -289,7 +343,7 @@ const state = {
     editor: {
       open: false,
       position: 0,
-      activeLabel: "vessel",
+      activeLabel: null,
       tool: "lasso",
       addTool: "lasso",
       brushSize: 24,
@@ -306,6 +360,13 @@ const state = {
       scrollStart: null,
     },
   },
+  categoryDialogMode: "add",
+  editingCategoryFolder: null,
+  categorySaving: false,
+  archiveSaving: false,
+  categoryConflict: null,
+  categoryDialogReturnFocus: null,
+  archiveDialogReturnFocus: null,
   status: { text: "", tone: "" },
 };
 
@@ -329,8 +390,8 @@ languageObserver.observe(app, {
 function applyLanguage() {
   document.documentElement.lang = state.language === "en" ? "en" : "zh-CN";
   document.title = state.language === "en"
-    ? "DataSeg Vessel and Lesion Annotation"
-    : "DataSeg 血管与肿瘤标定";
+    ? "DataSeg Mask Annotation"
+    : "DataSeg Mask 标定";
   if (state.language === "en") {
     translateTree(app);
   } else {
@@ -341,6 +402,7 @@ function applyLanguage() {
 function toggleLanguage() {
   state.language = state.language === "en" ? "zh-CN" : "en";
   localStorage.setItem(LANGUAGE_STORAGE_KEY, state.language);
+  refreshMaskArchiveDialog();
   applyLanguage();
 }
 
@@ -363,8 +425,58 @@ function sam2AfterFrames() {
     : DEFAULT_SAM2_AFTER_FRAMES;
 }
 
+function maskCategories() {
+  return state.manifest?.mask_categories || [];
+}
+
+function archivedMaskCategories() {
+  return state.manifest?.archived_mask_categories || [];
+}
+
+function categoryFolders() {
+  return maskCategories().map(({ folder_name: folderName }) => folderName);
+}
+
+function categoryFor(folderName) {
+  return maskCategories().find(
+    ({ folder_name: candidate }) => candidate === folderName,
+  ) || null;
+}
+
+function nextAvailableMaskCategoryColor(categories = maskCategories()) {
+  const used = new Set(
+    categories.map(({ color }) => String(color).toUpperCase()),
+  );
+  return MASK_CATEGORY_COLOR_CANDIDATES.find(
+    (color) => !used.has(color.toUpperCase()),
+  ) || MASK_CATEGORY_COLOR_CANDIDATES[0];
+}
+
 function labelDisplayName(label) {
-  return label === "lesion" ? "肿瘤" : "血管";
+  return categoryFor(label)?.display_name || label || "Mask";
+}
+
+function labelColor(label) {
+  return categoryFor(label)?.color || "#35C8D7";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function hasMaskCategories() {
+  return maskCategories().length > 0;
+}
+
+function masksReady() {
+  return hasMaskCategories() && categoryFolders().every(
+    (folderName) => Boolean(state.masks[folderName]),
+  );
 }
 
 function canvasMarkup() {
@@ -384,37 +496,136 @@ function canvasMarkup() {
     </section>`;
 }
 
+function categoryRowsMarkup() {
+  if (!hasMaskCategories()) {
+    return `
+      <div class="mask-category-empty">
+        <p>还没有 Mask 类别。先定义要标记的内容。</p>
+        <button class="plain-button mask-category-empty-button" data-action="add-mask-category">添加第一个类别</button>
+      </div>`;
+  }
+  return maskCategories().map((category, index) => {
+    const folderName = escapeHtml(category.folder_name);
+    const displayName = escapeHtml(category.display_name);
+    const color = escapeHtml(category.color);
+    return `
+      <div class="mask-category-row" data-category-row="${folderName}" style="--category-color: ${color}">
+        <button class="mask-category-select" data-action="label" data-label="${folderName}" title="${displayName}" aria-label="选择 ${displayName}，快捷键 ${index + 1}">
+          <span class="mask-category-swatch"></span>
+          <span class="mask-category-name" data-no-translate title="${displayName}">${displayName}</span>
+          <kbd>${index + 1}</kbd>
+        </button>
+        <button class="mask-category-visibility" type="button" data-action="toggle-mask-category" data-label="${folderName}" aria-pressed="true" title="隐藏 ${displayName} Mask" aria-label="隐藏 ${displayName} Mask">隐藏</button>
+        <button class="mask-category-menu-trigger" type="button" popovertarget="mask-category-menu-${folderName}" data-category-menu-trigger="${folderName}" data-category-management title="管理 ${displayName}" aria-label="管理 ${displayName}">管理</button>
+        <div class="mask-category-menu-panel" id="mask-category-menu-${folderName}" data-category-menu="${folderName}" popover>
+          <button type="button" data-action="edit-mask-category" data-label="${folderName}" data-category-management>编辑</button>
+          <button type="button" class="danger" data-action="archive-mask-category" data-label="${folderName}" data-category-management>删除</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function maskCategoriesMarkup() {
+  const archiveCount = archivedMaskCategories().length;
+  return `
+    <div class="mask-category-block" data-role="mask-category-block">
+      <div class="mask-category-heading">
+        <span><strong>Mask 类别</strong> <small>${maskCategories().length} / ${MAX_MASK_CATEGORIES}</small></span>
+        <button class="plain-button mask-category-add" data-action="add-mask-category" data-category-management${maskCategories().length >= MAX_MASK_CATEGORIES ? " disabled" : ""}>添加</button>
+      </div>
+      <div class="mask-category-list">${categoryRowsMarkup()}</div>
+      <footer class="mask-category-archive-footer">
+        <button class="mask-category-archive-placeholder" type="button" data-action="open-mask-archives" aria-haspopup="dialog"${archiveCount ? "" : " disabled"} title="${archiveCount ? `查看 ${archiveCount} 个归档类别` : "暂无归档类别"}">
+          <span>归档恢复</span><small>${archiveCount ? `${archiveCount} 个归档` : "暂无归档类别"}</small>
+        </button>
+      </footer>
+    </div>`;
+}
+
+function formatArchiveTime(value) {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) return value;
+  return new Intl.DateTimeFormat(
+    state.language === "en" ? "en" : "zh-CN",
+    { dateStyle: "medium", timeStyle: "short" },
+  ).format(timestamp);
+}
+
+function archiveRowsMarkup({ conflict = false } = {}) {
+  const archives = conflict
+    ? state.categoryConflict?.archives || []
+    : archivedMaskCategories();
+  if (!archives.length) {
+    return '<p class="mask-archive-empty">归档列表为空。</p>';
+  }
+  return archives.map((archive) => {
+    const archiveId = escapeHtml(archive.archive_id);
+    const displayName = escapeHtml(archive.display_name);
+    const folderName = escapeHtml(archive.folder_name);
+    const color = escapeHtml(archive.color);
+    const action = conflict
+      ? "restore-conflicting-archive"
+      : "restore-mask-category";
+    return `
+      <article class="mask-category-archive-row" style="--category-color: ${color}">
+        <span class="mask-category-archive-swatch" aria-hidden="true"></span>
+        <span class="mask-category-archive-details">
+          <strong data-no-translate title="${displayName}">${displayName}</strong>
+          <code data-no-translate title="${folderName}">${folderName}</code>
+          <small><span>归档时间</span> <time datetime="${escapeHtml(archive.archived_at)}">${escapeHtml(formatArchiveTime(archive.archived_at))}</time></small>
+        </span>
+        <button class="plain-button" type="button" data-action="${action}" data-archive-id="${archiveId}"${maskCategories().length >= MAX_MASK_CATEGORIES ? ' disabled title="活动类别已达到 5 个，请先归档一个类别再恢复。"' : ""}>恢复</button>
+      </article>`;
+  }).join("");
+}
+
+function maskArchiveDialogMarkup() {
+  return `
+    <div class="mask-category-modal" data-role="mask-archive-modal" hidden>
+      <button class="mask-category-backdrop" data-action="close-mask-archives" aria-label="关闭归档列表"></button>
+      <section class="mask-category-dialog mask-archive-dialog" role="dialog" aria-modal="true" aria-labelledby="mask-archive-title">
+        <header>
+          <h2 id="mask-archive-title">归档的 Mask 类别</h2>
+          <button class="mask-category-close-button" type="button" data-action="close-mask-archives">关闭</button>
+        </header>
+        <p class="mask-category-intro">归档类别保存在当前项目中，可以恢复原有 Mask。</p>
+        <div class="mask-category-archive-list" data-role="mask-archive-list">${archiveRowsMarkup()}</div>
+        <p class="mask-category-error" data-bind="mask-archive-error" role="alert"></p>
+      </section>
+    </div>`;
+}
+
+function maskCategoryConflictDialogMarkup() {
+  return `
+    <div class="mask-category-modal" data-role="mask-category-conflict-modal" hidden>
+      <button class="mask-category-backdrop" data-action="cancel-mask-category-conflict" aria-label="返回编辑"></button>
+      <section class="mask-category-dialog mask-category-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="mask-category-conflict-title">
+        <header>
+          <h2 id="mask-category-conflict-title">发现同名归档</h2>
+          <button class="mask-category-close-button" type="button" data-action="cancel-mask-category-conflict">返回编辑</button>
+        </header>
+        <p class="mask-category-intro">这个文件夹已有归档数据。选择恢复旧数据，或保留归档并以当前输入新建空类别。</p>
+        <div class="mask-category-archive-list" data-role="mask-category-conflict-list"></div>
+        <p class="mask-category-error" data-bind="mask-category-conflict-error" role="alert"></p>
+        <footer>
+          <button class="plain-button" type="button" data-action="cancel-mask-category-conflict">取消</button>
+          <button class="save-button" type="button" data-action="start-empty-mask-category">以当前输入新建空类别</button>
+        </footer>
+      </section>
+    </div>`;
+}
+
 function toolsMarkup() {
   return `
     <div class="tool-stack">
-      <button class="tool-button vessel" data-action="label" data-label="vessel">
-        <span class="tool-dot"></span><span>血管 Mask <kbd>1</kbd></span>
-      </button>
-      <button class="tool-button lesion" data-action="label" data-label="lesion">
-        <span class="tool-dot"></span><span>肿瘤 Mask <kbd>2</kbd></span>
-      </button>
       <div class="mode-selector" aria-label="添加 Mask 方式">
         <button class="plain-button" data-action="tool" data-tool="lasso">套索 <kbd>Q</kbd></button>
         <button class="plain-button" data-action="tool" data-tool="paint">画笔 <kbd>W</kbd></button>
       </div>
       <button class="tool-button eraser" data-action="tool" data-tool="erase">
-        <span class="tool-dot"></span><span>橡皮 · <b data-bind="eraser-label">血管</b> <kbd>E</kbd></span>
+        <span class="tool-dot"></span><span>橡皮 · <b data-bind="eraser-label">Mask</b> <kbd>E</kbd></span>
       </button>
       <p class="tool-help" data-bind="tool-help">按住并沿边界圈画，松开后自动闭合并填充。</p>
-    </div>`;
-}
-
-function togglesMarkup() {
-  return `
-    <div class="toggle-list">
-      <label class="toggle-row">
-        <span class="toggle-name"><span class="toggle-swatch vessel"></span>显示血管</span>
-        <input type="checkbox" data-toggle-label="vessel" checked />
-      </label>
-      <label class="toggle-row">
-        <span class="toggle-name"><span class="toggle-swatch lesion"></span>显示肿瘤</span>
-        <input type="checkbox" data-toggle-label="lesion" checked />
-      </label>
     </div>`;
 }
 
@@ -470,7 +681,7 @@ function navigationMarkup() {
       <button class="plain-button" data-action="next">下一张 →</button>
     </div>
     <button class="plain-button propagation-open-button" data-action="sam2-propagate">
-      SAM2 传播血管 <kbd>P</kbd>
+      SAM2 传播 Mask <kbd>P</kbd>
     </button>`;
 }
 
@@ -510,6 +721,53 @@ function headerMarkup(compact = false) {
     </header>`;
 }
 
+function maskCategoryDialogMarkup() {
+  return `
+    <div class="mask-category-modal" data-role="mask-category-modal" hidden>
+      <button class="mask-category-backdrop" data-action="close-mask-category" aria-label="关闭"></button>
+      <section class="mask-category-dialog" role="dialog" aria-modal="true" aria-labelledby="mask-category-title">
+        <header>
+          <div>
+            <h2 id="mask-category-title" data-bind="mask-category-title">添加 Mask 类别</h2>
+          </div>
+          <button class="mask-category-close-button" type="button" data-action="close-mask-category" aria-label="关闭">关闭</button>
+        </header>
+        <p class="mask-category-intro" data-bind="mask-category-intro">名称显示在标定界面中。文件夹名保存后不能修改。</p>
+        <form data-form="mask-category">
+          <label>
+            <span>UI 中的名字</span>
+            <input name="display_name" maxlength="80" autocomplete="off" required placeholder="例如：神经" />
+          </label>
+          <label>
+            <span>文件夹名字</span>
+            <input name="folder_name" maxlength="32" pattern="[a-z][a-z0-9_\\-]{0,31}" autocomplete="off" required placeholder="例如：nerve" />
+            <small>小写字母开头，只能使用小写字母、数字、下划线和连字符。</small>
+          </label>
+          <label>
+            <span>标记颜色</span>
+            <span class="mask-color-control">
+              <input type="color" name="color" value="#0072B2" required />
+              <output data-bind="mask-category-color">#0072B2</output>
+              <small>覆盖透明度固定为 44%</small>
+            </span>
+          </label>
+          <p class="mask-category-error" data-bind="mask-category-error" role="alert"></p>
+          <footer>
+            <button class="plain-button" type="button" data-action="close-mask-category">取消</button>
+            <button class="save-button" type="submit" data-action="submit-mask-category" data-bind="submit-mask-category">添加类别</button>
+          </footer>
+        </form>
+      </section>
+    </div>`;
+}
+
+function batchCategoryButtonsMarkup() {
+  return maskCategories().map((category, index) => `
+    <button class="tool-button" data-action="batch-editor-label" data-label="${escapeHtml(category.folder_name)}" style="--category-color: ${escapeHtml(category.color)}">
+      <span class="tool-dot"></span><span data-no-translate>${escapeHtml(category.display_name)} Mask <kbd>${index + 1}</kbd></span>
+    </button>`).join("");
+}
+
 function batchReviewMarkup() {
   return `
     <div class="batch-modal" data-role="batch-modal" hidden>
@@ -518,10 +776,10 @@ function batchReviewMarkup() {
         <div class="batch-overview" data-role="batch-overview">
           <header class="batch-header">
             <div>
-              <p class="batch-eyebrow" data-bind="batch-eyebrow">人工关键帧 · 血管双向传播</p>
-              <h2 id="batch-title" data-bind="batch-title">SAM2 血管传播预览</h2>
+              <p class="batch-eyebrow" data-bind="batch-eyebrow">人工关键帧 · Mask 双向传播</p>
+              <h2 id="batch-title" data-bind="batch-title">SAM2 Mask 传播预览</h2>
             </div>
-            <button class="batch-close-button" data-action="batch-close" aria-label="关闭">×</button>
+            <button class="batch-close-button" data-action="batch-close" aria-label="关闭">关闭</button>
           </header>
           <p class="batch-guidance" data-bind="batch-guidance"></p>
           <label class="batch-overwrite-option">
@@ -555,17 +813,12 @@ function batchReviewMarkup() {
               <button class="plain-button" data-action="batch-editor-previous">← 上一帧</button>
               <span data-bind="batch-editor-position">0 / 0</span>
               <button class="plain-button" data-action="batch-editor-next">下一帧 →</button>
-              <button class="batch-close-button" data-action="batch-editor-done" aria-label="返回传播预览">×</button>
+              <button class="batch-close-button" data-action="batch-editor-done" aria-label="返回传播预览">关闭</button>
             </div>
           </header>
           <div class="batch-editor-body">
             <aside class="batch-editor-tools">
-              <button class="tool-button vessel" data-action="batch-editor-label" data-label="vessel">
-                <span class="tool-dot"></span><span>血管 Mask <kbd>1</kbd></span>
-              </button>
-              <button class="tool-button lesion" data-action="batch-editor-label" data-label="lesion">
-                <span class="tool-dot"></span><span>肿瘤 Mask <kbd>2</kbd></span>
-              </button>
+              <div class="batch-category-buttons" data-role="batch-category-buttons">${batchCategoryButtonsMarkup()}</div>
               <div class="mode-selector" aria-label="微调添加 Mask 方式">
                 <button class="plain-button" data-action="batch-editor-tool" data-tool="lasso">套索 <kbd>Q</kbd></button>
                 <button class="plain-button" data-action="batch-editor-tool" data-tool="paint">画笔 <kbd>W</kbd></button>
@@ -620,9 +873,9 @@ function renderReviewer() {
       ${headerMarkup()}
       <main class="workspace">
         <aside class="panel tool-rail">
+          <section class="rail-section mask-category-section">${maskCategoriesMarkup()}</section>
           <section class="rail-section"><h2 class="panel-title">编辑工具</h2>${toolsMarkup()}</section>
           <section class="rail-section"><h2 class="panel-title">笔刷大小</h2>${brushMarkup()}</section>
-          <section class="rail-section"><h2 class="panel-title">Mask 显示</h2>${togglesMarkup()}</section>
           <section class="rail-section">${quickActionsMarkup()}</section>
         </aside>
         ${canvasMarkup()}
@@ -633,7 +886,10 @@ function renderReviewer() {
         </aside>
       </main>
     </div>
-    ${batchReviewMarkup()}`;
+    ${batchReviewMarkup()}
+    ${maskCategoryDialogMarkup()}
+    ${maskArchiveDialogMarkup()}
+    ${maskCategoryConflictDialogMarkup()}`;
 }
 
 function buildReviewer() {
@@ -739,22 +995,390 @@ async function jumpToNextUnreviewed() {
   await jumpToImage(targetIndex, "已跳转到下一张待审核帧");
 }
 
+function categoryManagementBusy() {
+  return (
+    state.loading ||
+    state.saving ||
+    state.categorySaving ||
+    state.archiveSaving ||
+    state.batch.open ||
+    state.batch.loading ||
+    state.batch.saving ||
+    state.batch.editor.open
+  );
+}
+
+function localizedText(value) {
+  return state.language === "en" ? englishText(value) : value;
+}
+
+function categoryDestructiveOperationBlocked() {
+  if (state.dirty) {
+    const message = "当前帧有未保存修改，请先保存或丢弃后再管理类别。";
+    setStatus(message, "error");
+    window.alert(localizedText(message));
+    return true;
+  }
+  if (categoryManagementBusy()) {
+    const message = "类别操作正在进行，请稍后再试。";
+    setStatus(message, "error");
+    return true;
+  }
+  return false;
+}
+
+function syncCategoryManagementControls() {
+  const managementBusy = categoryManagementBusy();
+  all("[data-category-management]").forEach((button) => {
+    button.disabled =
+      managementBusy ||
+      (button.dataset.action === "add-mask-category" &&
+        maskCategories().length >= MAX_MASK_CATEGORIES);
+  });
+  all('[data-action="open-mask-archives"]').forEach((button) => {
+    button.disabled = managementBusy || archivedMaskCategories().length === 0;
+  });
+  all('[data-action="restore-mask-category"], [data-action="restore-conflicting-archive"]').forEach((button) => {
+    button.disabled =
+      managementBusy || maskCategories().length >= MAX_MASK_CATEGORIES;
+  });
+  if (managementBusy) {
+    all("[data-category-menu]:popover-open").forEach((menu) => menu.hidePopover());
+  }
+}
+
+function wireMaskCategoryListControls(root = document) {
+  root.querySelectorAll('[data-action="label"]').forEach((button) => {
+    button.addEventListener("click", () => selectLabel(button.dataset.label));
+  });
+  root.querySelectorAll('[data-action="add-mask-category"]').forEach((button) => {
+    button.addEventListener("click", () => openMaskCategoryDialog());
+  });
+  root.querySelectorAll('[data-action="toggle-mask-category"]').forEach((button) => {
+    button.addEventListener("click", () => toggleMask(button.dataset.label));
+  });
+  root.querySelectorAll('[data-action="edit-mask-category"]').forEach((button) => {
+    button.addEventListener("click", () => openMaskCategoryDialog(button.dataset.label));
+  });
+  root.querySelectorAll('[data-action="archive-mask-category"]').forEach((button) => {
+    button.addEventListener("click", () => requestMaskCategoryArchive(button.dataset.label));
+  });
+  root.querySelectorAll('[data-action="open-mask-archives"]').forEach((button) => {
+    button.addEventListener("click", openMaskArchiveDialog);
+  });
+  root.querySelectorAll("[data-category-menu-trigger]").forEach((trigger) => {
+    trigger.addEventListener("click", (event) => {
+      if (categoryManagementBusy()) {
+        event.preventDefault();
+        return;
+      }
+      const menu = document.querySelector(
+        `[data-category-menu="${CSS.escape(trigger.dataset.categoryMenuTrigger)}"]`,
+      );
+      if (!menu) return;
+      const bounds = trigger.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, bounds.right - 92)}px`;
+      menu.style.top = `${Math.min(window.innerHeight - 92, bounds.bottom + 5)}px`;
+    });
+  });
+}
+
+function wireBatchCategoryButtons(root = document) {
+  root.querySelectorAll('[data-action="batch-editor-label"]').forEach((button) => {
+    button.addEventListener("click", () =>
+      selectBatchEditorLabel(button.dataset.label),
+    );
+  });
+}
+
+function refreshMaskCategoryControls() {
+  const categoryBlock = document.querySelector('[data-role="mask-category-block"]');
+  if (categoryBlock) categoryBlock.outerHTML = maskCategoriesMarkup();
+  const refreshedCategoryBlock = document.querySelector('[data-role="mask-category-block"]');
+  if (refreshedCategoryBlock) wireMaskCategoryListControls(refreshedCategoryBlock);
+
+  const batchButtons = document.querySelector('[data-role="batch-category-buttons"]');
+  if (batchButtons) {
+    batchButtons.innerHTML = batchCategoryButtonsMarkup();
+    wireBatchCategoryButtons(batchButtons);
+  }
+  refreshMaskArchiveDialog();
+  syncUi();
+  renderCanvas();
+  applyLanguage();
+}
+
+function refreshMaskArchiveDialog() {
+  const list = document.querySelector('[data-role="mask-archive-list"]');
+  if (!list) return;
+  list.innerHTML = archiveRowsMarkup();
+  wireMaskArchiveControls(list);
+}
+
+function wireMaskArchiveControls(root = document) {
+  root.querySelectorAll('[data-action="restore-mask-category"]').forEach((button) => {
+    button.addEventListener("click", () => restoreMaskCategory(button.dataset.archiveId));
+  });
+}
+
+function requestMaskCategoryArchive(folderName) {
+  if (!categoryFor(folderName)) return;
+  const menu = document.querySelector(`[data-category-menu="${CSS.escape(folderName)}"]`);
+  if (menu?.matches(":popover-open")) menu.hidePopover();
+  if (categoryDestructiveOperationBlocked()) return;
+  const category = categoryFor(folderName);
+  const confirmed = window.confirm(
+    state.language === "en"
+      ? `Delete “${category.display_name}”? Its Masks will move into this project's recoverable archive.`
+      : `删除“${category.display_name}”类别？它的 Mask 会移入当前项目的可恢复归档。`,
+  );
+  if (!confirmed) return;
+  archiveMaskCategory(folderName);
+}
+
+function removeCategoryCanvasState(folderName) {
+  delete state.masks[folderName];
+  delete state.overlayVisible[folderName];
+  state.history.forEach((snapshot) => delete snapshot[folderName]);
+}
+
+function activateCategoryAfterRemoval(removedIndex) {
+  const categories = maskCategories();
+  const category = categories[Math.min(removedIndex, categories.length - 1)] || null;
+  state.activeLabel = category?.folder_name || null;
+  if (state.activeLabel) state.overlayVisible[state.activeLabel] = true;
+  state.batch.propagatedLabel = state.activeLabel;
+  state.batch.editor.activeLabel = state.activeLabel;
+}
+
+function focusCurrentCategoryControl() {
+  requestAnimationFrame(() => {
+    const target = state.activeLabel
+      ? document.querySelector(
+          `[data-action="label"][data-label="${CSS.escape(state.activeLabel)}"]`,
+        )
+      : document.querySelector('[data-action="add-mask-category"]');
+    target?.focus();
+  });
+}
+
+async function archiveMaskCategory(folderName) {
+  const removedIndex = maskCategories().findIndex(
+    ({ folder_name: candidate }) => candidate === folderName,
+  );
+  if (removedIndex < 0) return;
+  const category = maskCategories()[removedIndex];
+  state.archiveSaving = true;
+  setStatus("正在归档…");
+  syncUi();
+  try {
+    const response = await fetch(
+      `/api/mask-categories/${encodeURIComponent(folderName)}`,
+      { method: "DELETE", headers: projectHeaders() },
+    );
+    const archived = await response.json();
+    if (!response.ok) throw new Error(archived.error || "无法归档 Mask 类别");
+    state.manifest.mask_categories.splice(removedIndex, 1);
+    state.manifest.archived_mask_categories ||= [];
+    state.manifest.archived_mask_categories.push(archived);
+    removeCategoryCanvasState(folderName);
+    if (state.activeLabel === folderName) {
+      activateCategoryAfterRemoval(removedIndex);
+    }
+    state.archiveSaving = false;
+    refreshMaskCategoryControls();
+    focusCurrentCategoryControl();
+    setStatus(`已归档 ${category.display_name} Mask，可从归档恢复`, "success");
+  } catch (error) {
+    state.archiveSaving = false;
+    setStatus(error.message, "error");
+    syncUi();
+  }
+}
+
+function openMaskArchiveDialog(event) {
+  if (categoryManagementBusy() || !archivedMaskCategories().length) return;
+  const modal = document.querySelector('[data-role="mask-archive-modal"]');
+  if (!modal) return;
+  state.archiveDialogReturnFocus = event?.currentTarget || document.activeElement;
+  refreshMaskArchiveDialog();
+  setBoundText("mask-archive-error", "");
+  modal.hidden = false;
+  document.body.classList.add("mask-category-modal-open");
+  applyLanguage();
+  requestAnimationFrame(() => {
+    modal.querySelector('[data-action="restore-mask-category"]')
+      ?.focus();
+  });
+}
+
+function closeMaskArchiveDialog() {
+  if (state.archiveSaving) return;
+  const modal = document.querySelector('[data-role="mask-archive-modal"]');
+  if (!modal) return;
+  modal.hidden = true;
+  document.body.classList.remove("mask-category-modal-open");
+  const returnFocus = state.archiveDialogReturnFocus;
+  state.archiveDialogReturnFocus = null;
+  if (returnFocus?.isConnected) requestAnimationFrame(() => returnFocus.focus());
+}
+
+async function restoreMaskCategory(archiveId, { fromConflict = false } = {}) {
+  if (categoryDestructiveOperationBlocked()) return false;
+  if (maskCategories().length >= MAX_MASK_CATEGORIES) {
+    const message = "活动类别已达到 5 个，请先归档一个类别再恢复。";
+    setBoundText(
+      fromConflict ? "mask-category-conflict-error" : "mask-archive-error",
+      message,
+    );
+    setStatus(message, "error");
+    return false;
+  }
+  state.archiveSaving = true;
+  setBoundText(
+    fromConflict ? "mask-category-conflict-error" : "mask-archive-error",
+    "",
+  );
+  syncCategoryManagementControls();
+  try {
+    const response = await fetch(
+      `/api/mask-archives/${encodeURIComponent(archiveId)}/restore`,
+      {
+        method: "POST",
+        headers: projectHeaders(),
+        body: "{}",
+      },
+    );
+    const category = await response.json();
+    if (!response.ok) throw new Error(category.error || "无法恢复 Mask 类别");
+    state.manifest.mask_categories.push(category);
+    state.manifest.archived_mask_categories = archivedMaskCategories().filter(
+      ({ archive_id: candidate }) => candidate !== archiveId,
+    );
+    state.activeLabel = category.folder_name;
+    state.overlayVisible[category.folder_name] = true;
+    state.batch.propagatedLabel = state.activeLabel;
+    state.batch.editor.activeLabel = state.activeLabel;
+    state.archiveSaving = false;
+    if (fromConflict) {
+      closeMaskCategoryConflict(false);
+      closeMaskCategoryDialog();
+    }
+    closeMaskArchiveDialog();
+    refreshMaskCategoryControls();
+    if (state.sourceImage) {
+      await loadItem(
+        state.index,
+        true,
+        `已恢复 ${category.display_name} Mask 和归档数据`,
+      );
+    } else {
+      setStatus(`已恢复 ${category.display_name} Mask 和归档数据`, "success");
+    }
+    focusCurrentCategoryControl();
+    return true;
+  } catch (error) {
+    state.archiveSaving = false;
+    setBoundText(
+      fromConflict ? "mask-category-conflict-error" : "mask-archive-error",
+      error.message,
+    );
+    setStatus(error.message, "error");
+    syncUi();
+    return false;
+  }
+}
+
+function showMaskCategoryConflict(payload, archives) {
+  state.categoryConflict = { payload, archives };
+  const categoryModal = document.querySelector('[data-role="mask-category-modal"]');
+  const conflictModal = document.querySelector(
+    '[data-role="mask-category-conflict-modal"]',
+  );
+  const list = document.querySelector('[data-role="mask-category-conflict-list"]');
+  if (!categoryModal || !conflictModal || !list) return;
+  list.innerHTML = archiveRowsMarkup({ conflict: true });
+  list.querySelectorAll('[data-action="restore-conflicting-archive"]').forEach((button) => {
+    button.addEventListener("click", () =>
+      restoreMaskCategory(button.dataset.archiveId, { fromConflict: true }),
+    );
+  });
+  setBoundText("mask-category-conflict-error", "");
+  categoryModal.hidden = true;
+  conflictModal.hidden = false;
+  applyLanguage();
+  requestAnimationFrame(() => {
+    conflictModal.querySelector('[data-action="restore-conflicting-archive"]')
+      ?.focus();
+  });
+}
+
+function closeMaskCategoryConflict(returnToForm = true) {
+  if (state.categorySaving || state.archiveSaving) return;
+  const conflictModal = document.querySelector(
+    '[data-role="mask-category-conflict-modal"]',
+  );
+  const categoryModal = document.querySelector('[data-role="mask-category-modal"]');
+  if (conflictModal) conflictModal.hidden = true;
+  state.categoryConflict = null;
+  if (returnToForm && categoryModal) {
+    categoryModal.hidden = false;
+    requestAnimationFrame(() => {
+      categoryModal.querySelector('[name="folder_name"]')?.focus();
+    });
+  }
+}
+
+function focusableDialogElements(modal) {
+  return [...modal.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )].filter((element) => element.offsetParent !== null);
+}
+
+function trapDialogFocus(event, modal) {
+  if (event.key !== "Tab") return;
+  const focusable = focusableDialogElements(modal);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function wireControls() {
   all('[data-action="language"]').forEach((button) => {
     button.addEventListener("click", toggleLanguage);
   });
-  all('[data-action="label"]').forEach((button) => {
-    button.addEventListener("click", () => selectLabel(button.dataset.label));
+  wireMaskCategoryListControls();
+  wireMaskArchiveControls();
+  wireBatchCategoryButtons();
+  all('[data-action="close-mask-category"]').forEach((button) => {
+    button.addEventListener("click", closeMaskCategoryDialog);
   });
+  all('[data-action="close-mask-archives"]').forEach((button) => {
+    button.addEventListener("click", closeMaskArchiveDialog);
+  });
+  all('[data-action="cancel-mask-category-conflict"]').forEach((button) => {
+    button.addEventListener("click", () => closeMaskCategoryConflict(true));
+  });
+  all('[data-action="start-empty-mask-category"]').forEach((button) => {
+    button.addEventListener("click", startEmptyMaskCategory);
+  });
+  const categoryForm = document.querySelector('[data-form="mask-category"]');
+  if (categoryForm) {
+    categoryForm.addEventListener("submit", submitMaskCategory);
+    const colorInput = categoryForm.elements.color;
+    colorInput.addEventListener("input", () => {
+      setBoundText("mask-category-color", colorInput.value.toUpperCase());
+    });
+  }
   all('[data-action="tool"]').forEach((button) => {
     button.addEventListener("click", () => setDrawTool(button.dataset.tool));
-  });
-  all("[data-toggle-label]").forEach((input) => {
-    input.addEventListener("change", () => {
-      state.overlayVisible[input.dataset.toggleLabel] = input.checked;
-      renderCanvas();
-      syncUi();
-    });
   });
   all('[data-control="brush"]').forEach((input) => {
     input.addEventListener("input", () => setBrushSize(Number(input.value)));
@@ -811,11 +1435,6 @@ function wireControls() {
   all('[data-action="batch-editor-next"]').forEach((button) =>
     button.addEventListener("click", () => moveBatchEditor(1)),
   );
-  all('[data-action="batch-editor-label"]').forEach((button) =>
-    button.addEventListener("click", () =>
-      selectBatchEditorLabel(button.dataset.label),
-    ),
-  );
   all('[data-action="batch-editor-tool"]').forEach((button) =>
     button.addEventListener("click", () => setBatchEditorTool(button.dataset.tool)),
   );
@@ -852,6 +1471,177 @@ function wireControls() {
   window.addEventListener("pointermove", continueBatchSelectionDragFromPoint);
   window.addEventListener("pointerup", endBatchSelectionDrag);
   window.addEventListener("pointercancel", endBatchSelectionDrag);
+}
+
+function openMaskCategoryDialog(folderName = null) {
+  if (categoryManagementBusy()) return;
+  const modal = document.querySelector('[data-role="mask-category-modal"]');
+  const form = document.querySelector('[data-form="mask-category"]');
+  const category = folderName ? categoryFor(folderName) : null;
+  if (!modal || !form || (folderName && !category)) return;
+  if (!category && maskCategories().length >= MAX_MASK_CATEGORIES) return;
+
+  state.categoryDialogReturnFocus = document.activeElement;
+  state.categoryDialogMode = category ? "edit" : "add";
+  state.editingCategoryFolder = category?.folder_name || null;
+  form.reset();
+  const submitButton = form.querySelector('[data-action="submit-mask-category"]');
+  if (submitButton) submitButton.disabled = false;
+  form.elements.display_name.value = category?.display_name || "";
+  form.elements.folder_name.value = category?.folder_name || "";
+  form.elements.folder_name.readOnly = Boolean(category);
+  form.elements.color.value = category?.color || nextAvailableMaskCategoryColor();
+  setBoundText(
+    "mask-category-title",
+    category ? "编辑 Mask 类别" : "添加 Mask 类别",
+  );
+  setBoundText(
+    "mask-category-intro",
+    category
+      ? "名称和颜色会立即更新。文件夹名保持不变。"
+      : "名称显示在标定界面中。文件夹名保存后不能修改。",
+  );
+  setBoundText(
+    "submit-mask-category",
+    category ? "保存修改" : "添加类别",
+  );
+  setBoundText("mask-category-color", form.elements.color.value.toUpperCase());
+  setBoundText("mask-category-error", "");
+  if (category) {
+    const menu = document.querySelector(
+      `[data-category-menu="${CSS.escape(category.folder_name)}"]`,
+    );
+    if (menu?.matches(":popover-open")) menu.hidePopover();
+  }
+  modal.hidden = false;
+  document.body.classList.add("mask-category-modal-open");
+  requestAnimationFrame(() => form.elements.display_name.focus());
+}
+
+function closeMaskCategoryDialog() {
+  if (state.categorySaving || state.archiveSaving) return;
+  const modal = document.querySelector('[data-role="mask-category-modal"]');
+  if (!modal) return;
+  modal.hidden = true;
+  const conflictModal = document.querySelector(
+    '[data-role="mask-category-conflict-modal"]',
+  );
+  if (conflictModal) conflictModal.hidden = true;
+  document.body.classList.remove("mask-category-modal-open");
+  state.categoryDialogMode = "add";
+  state.editingCategoryFolder = null;
+  state.categoryConflict = null;
+  const returnFocus = state.categoryDialogReturnFocus;
+  state.categoryDialogReturnFocus = null;
+  if (returnFocus?.isConnected) requestAnimationFrame(() => returnFocus.focus());
+}
+
+function applyMaskCategoryMutation(result, editing) {
+  const category = result.category || result;
+  if (editing) {
+    const index = maskCategories().findIndex(
+      ({ folder_name: folder }) => folder === category.folder_name,
+    );
+    if (index >= 0) state.manifest.mask_categories[index] = category;
+  } else {
+    state.manifest.mask_categories.push(category);
+    state.activeLabel = category.folder_name;
+    state.overlayVisible[category.folder_name] = true;
+    state.batch.propagatedLabel = state.activeLabel;
+    state.batch.editor.activeLabel = state.activeLabel;
+    if (state.sourceImage) addBlankCategoryToCurrentFrame(category.folder_name);
+  }
+  state.categorySaving = false;
+  closeMaskCategoryConflict(false);
+  closeMaskCategoryDialog();
+  refreshMaskCategoryControls();
+  setStatus(
+    editing
+      ? `已更新 ${category.display_name} Mask`
+      : result.backfilled_count > 0
+      ? `已添加 ${category.display_name} Mask，并为 ${result.backfilled_count} 个已审核帧补全空 Mask`
+      : `已添加 ${category.display_name} Mask`,
+    "success",
+  );
+}
+
+async function submitMaskCategory(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form.reportValidity()) return;
+  const submitButton = form.querySelector('[data-action="submit-mask-category"]');
+  const editing = state.categoryDialogMode === "edit";
+  const payload = {
+    display_name: form.elements.display_name.value.trim(),
+    color: form.elements.color.value.toUpperCase(),
+  };
+  if (!editing) payload.folder_name = form.elements.folder_name.value.trim();
+  const requestUrl = editing
+    ? `/api/mask-categories/${encodeURIComponent(state.editingCategoryFolder)}`
+    : "/api/mask-categories";
+  state.categorySaving = true;
+  submitButton.disabled = true;
+  submitButton.textContent = editing ? "正在更新…" : "正在添加…";
+  setBoundText("mask-category-error", "");
+  try {
+    const response = await fetch(requestUrl, {
+      method: editing ? "PATCH" : "POST",
+      headers: projectHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      if (
+        !editing &&
+        response.status === 409 &&
+        result.code === "archived_folder_conflict" &&
+        Array.isArray(result.archives)
+      ) {
+        state.categorySaving = false;
+        submitButton.disabled = false;
+        submitButton.textContent = "添加类别";
+        showMaskCategoryConflict(payload, result.archives);
+        return;
+      }
+      throw new Error(
+        result.error || (editing ? "无法更新 Mask 类别" : "无法添加 Mask 类别"),
+      );
+    }
+    applyMaskCategoryMutation(result, editing);
+  } catch (error) {
+    state.categorySaving = false;
+    setBoundText("mask-category-error", error.message);
+    submitButton.disabled = false;
+    submitButton.textContent = editing ? "保存修改" : "添加类别";
+  }
+}
+
+async function startEmptyMaskCategory() {
+  const conflict = state.categoryConflict;
+  if (!conflict || state.categorySaving || state.archiveSaving) return;
+  const payload = {
+    ...conflict.payload,
+    archive_action: "start_empty",
+  };
+  state.categorySaving = true;
+  setBoundText("mask-category-conflict-error", "");
+  syncCategoryManagementControls();
+  try {
+    const response = await fetch("/api/mask-categories", {
+      method: "POST",
+      headers: projectHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "无法新建空 Mask 类别");
+    }
+    applyMaskCategoryMutation(result, false);
+  } catch (error) {
+    state.categorySaving = false;
+    setBoundText("mask-category-conflict-error", error.message);
+    syncUi();
+  }
 }
 
 function wireCanvas() {
@@ -902,14 +1692,14 @@ function syncUi() {
   });
   setBoundText("brush-value", `${state.brushSize} px`);
   setBoundText("zoom-value", `${Math.round(state.zoom * 100)}%`);
-  setBoundText("eraser-label", state.activeLabel === "vessel" ? "血管" : "肿瘤");
+  setBoundText("eraser-label", labelDisplayName(state.activeLabel));
   setBoundText(
     "tool-help",
     state.tool === "lasso"
       ? "沿目标边界圈画，松开后自动闭合并填充。"
       : state.tool === "paint"
       ? "按住鼠标直接填涂，适合横断面和局部补画。"
-      : `按住鼠标擦除${state.activeLabel === "vessel" ? "血管" : "肿瘤"} Mask。`,
+      : `按住鼠标擦除${labelDisplayName(state.activeLabel)} Mask。`,
   );
   setBoundText("status", state.status.text);
   all('[data-bind="status"]').forEach((element) => {
@@ -934,19 +1724,30 @@ function syncUi() {
   all('[data-bind="dirty-dot"]').forEach((element) => element.classList.toggle("active", state.dirty));
   all('[data-action="label"]').forEach((button) => {
     button.classList.toggle("active", button.dataset.label === state.activeLabel);
-    button.disabled =
-      state.loading ||
-      state.saving ||
-      (state.manifest.vessel_only && button.dataset.label === "lesion");
+    button.disabled = state.loading || state.saving;
+  });
+  syncCategoryManagementControls();
+  all('[data-action="toggle-mask-category"]').forEach((button) => {
+    const category = categoryFor(button.dataset.label);
+    const visible = Boolean(state.overlayVisible[button.dataset.label]);
+    const action = visible ? "隐藏" : "显示";
+    button.textContent = action;
+    button.setAttribute("aria-pressed", String(visible));
+    button.setAttribute("title", `${action} ${category?.display_name || button.dataset.label} Mask`);
+    button.setAttribute("aria-label", `${action} ${category?.display_name || button.dataset.label} Mask`);
+    button.disabled = state.loading || state.saving;
+    if (state.language === "en") translateTree(button);
   });
   all('[data-action="tool"]').forEach((button) => {
     button.classList.toggle("active", button.dataset.tool === state.tool);
-    button.disabled = state.loading || state.saving;
+    button.disabled =
+      state.loading ||
+      state.saving ||
+      !hasMaskCategories() ||
+      !state.overlayVisible[state.activeLabel];
   });
-  all("[data-toggle-label]").forEach((input) => {
-    input.checked = state.overlayVisible[input.dataset.toggleLabel];
-    input.disabled =
-      state.manifest.vessel_only && input.dataset.toggleLabel === "lesion";
+  all('[data-action="undo"], [data-action="reset"], [data-action="toggle-all"], [data-action="clear-all"]').forEach((button) => {
+    button.disabled = state.loading || state.saving || !hasMaskCategories();
   });
   all('[data-control="brush"]').forEach((input) => {
     input.value = String(state.brushSize);
@@ -955,15 +1756,15 @@ function syncUi() {
     input.value = String(Math.round(state.zoom * 100));
   });
   all('[data-action="save"]').forEach((button) => {
-    button.disabled = state.loading || state.saving;
+    button.disabled = state.loading || state.saving || !masksReady();
     button.innerHTML = state.saving ? "正在保存…" : "保存并下一张 <kbd>Enter</kbd>";
   });
   all('[data-action="save-stay"]').forEach((button) => {
-    button.disabled = state.loading || state.saving;
+    button.disabled = state.loading || state.saving || !masksReady();
     button.innerHTML = state.saving ? "正在保存…" : "仅保存当前帧 <kbd>S</kbd>";
   });
   all('[data-action="sam2-propagate"]').forEach((button) => {
-    button.disabled = state.loading || state.saving || state.batch.loading || state.batch.saving;
+    button.disabled = state.loading || state.saving || state.batch.loading || state.batch.saving || !masksReady();
     button.innerHTML = `SAM2 传播${labelDisplayName(state.activeLabel)} <kbd>P</kbd>`;
   });
   const hasPendingItem = state.manifest.items.some(
@@ -991,13 +1792,10 @@ function setBrushSize(value) {
 }
 
 function selectLabel(label) {
-  if (!LABELS.includes(label)) return;
-  if (state.manifest?.vessel_only && label === "lesion") {
-    setStatus("本批次只标注血管，lesion 已由后端固定为全黑");
-    return;
-  }
+  if (!categoryFolders().includes(label)) return;
   cancelGesture();
   state.activeLabel = label;
+  state.overlayVisible[label] = true;
   state.tool = state.addTool;
   syncUi();
   renderCanvas();
@@ -1005,6 +1803,11 @@ function selectLabel(label) {
 
 function setDrawTool(tool) {
   if (!["lasso", "paint", "erase"].includes(tool)) return;
+  if (!hasMaskCategories()) {
+    openMaskCategoryDialog();
+    return;
+  }
+  if (!state.overlayVisible[state.activeLabel]) return;
   cancelGesture();
   state.tool = tool;
   if (tool === "lasso" || tool === "paint") state.addTool = tool;
@@ -1038,6 +1841,18 @@ function makeMaskCanvas(width, height) {
   return canvas;
 }
 
+function addBlankCategoryToCurrentFrame(folderName) {
+  const width = state.sourceImage.naturalWidth;
+  const height = state.sourceImage.naturalHeight;
+  const canvas = makeMaskCanvas(width, height);
+  state.masks[folderName] = canvas;
+  state.history.forEach((snapshot) => {
+    snapshot[folderName] = canvas
+      .getContext("2d", { willReadFrequently: true })
+      .getImageData(0, 0, width, height);
+  });
+}
+
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -1068,16 +1883,20 @@ function maskCanvasFromImage(image, width, height) {
 
 async function fetchMasks(index, candidateOnly = false) {
   const suffix = candidateOnly ? "?source=candidate" : "";
-  const [vesselImage, lesionImage] = await Promise.all([
-    loadImage(`/api/item/${index}/mask/vessel${suffix}`),
-    loadImage(`/api/item/${index}/mask/lesion${suffix}`),
-  ]);
+  const folders = categoryFolders();
+  const images = await Promise.all(
+    folders.map((folderName) =>
+      loadImage(`/api/item/${index}/mask/${encodeURIComponent(folderName)}${suffix}`),
+    ),
+  );
   const width = state.sourceImage.naturalWidth;
   const height = state.sourceImage.naturalHeight;
-  return {
-    vessel: maskCanvasFromImage(vesselImage, width, height),
-    lesion: maskCanvasFromImage(lesionImage, width, height),
-  };
+  return Object.fromEntries(
+    folders.map((folderName, position) => [
+      folderName,
+      maskCanvasFromImage(images[position], width, height),
+    ]),
+  );
 }
 
 async function loadItem(index, force = false, messageAfter = "") {
@@ -1134,8 +1953,9 @@ function renderBatchPreview(sourceImage, masks) {
   const canvas = makeMaskCanvas(sourceImage.naturalWidth, sourceImage.naturalHeight);
   const context = canvas.getContext("2d");
   context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
-  drawTint(context, masks.vessel, "#00dcff");
-  drawTint(context, masks.lesion, "#ff40a0");
+  categoryFolders().forEach((folderName) => {
+    if (masks[folderName]) drawTint(context, masks[folderName], labelColor(folderName));
+  });
   context.globalAlpha = 1;
   return canvas.toDataURL("image/jpeg", 0.82);
 }
@@ -1153,45 +1973,46 @@ function maskCanvasHasPixels(canvas) {
 
 async function loadSam2Preview(item) {
   const sourceImage = await loadImage(`/api/item/${item.index}/image`);
-  if (!LABELS.includes(item.label)) {
+  if (!categoryFolders().includes(item.label)) {
     throw new Error("SAM2 返回了未知的 Mask 类别");
   }
   const propagatedImage = await loadImage(item.mask);
   const propagatedLabel = item.label;
-  const preservedLabel = propagatedLabel === "vessel" ? "lesion" : "vessel";
-  let preservedMask;
-  if (state.manifest.vessel_only && preservedLabel === "lesion") {
-    preservedMask = makeMaskCanvas(
-      sourceImage.naturalWidth,
-      sourceImage.naturalHeight,
-    );
-  } else if (item.index === state.index && state.dirty) {
-    preservedMask = cloneMaskCanvas(state.masks[preservedLabel]);
-  } else {
-    const preservedImage = await loadImage(
-      `/api/item/${item.index}/mask/${preservedLabel}`,
-    );
-    preservedMask = maskCanvasFromImage(
-      preservedImage,
-      sourceImage.naturalWidth,
-      sourceImage.naturalHeight,
-    );
-  }
-  const masks = {};
+  const masks = Object.fromEntries(await Promise.all(
+    categoryFolders()
+      .filter((folderName) => folderName !== propagatedLabel)
+      .map(async (folderName) => {
+        if (item.index === state.index && state.dirty) {
+          return [folderName, cloneMaskCanvas(state.masks[folderName])];
+        }
+        const preservedImage = await loadImage(
+          `/api/item/${item.index}/mask/${encodeURIComponent(folderName)}`,
+        );
+        return [
+          folderName,
+          maskCanvasFromImage(
+            preservedImage,
+            sourceImage.naturalWidth,
+            sourceImage.naturalHeight,
+          ),
+        ];
+      }),
+  ));
   masks[propagatedLabel] = maskCanvasFromImage(
     propagatedImage,
     sourceImage.naturalWidth,
     sourceImage.naturalHeight,
   );
-  masks[preservedLabel] = preservedMask;
   return {
     index: item.index,
     item,
     masks,
-    originalMasks: {
-      vessel: cloneMaskCanvas(masks.vessel),
-      lesion: cloneMaskCanvas(masks.lesion),
-    },
+    originalMasks: Object.fromEntries(
+      categoryFolders().map((folderName) => [
+        folderName,
+        cloneMaskCanvas(masks[folderName]),
+      ]),
+    ),
     sourceImage,
     preview: renderBatchPreview(sourceImage, masks),
     selectable:
@@ -1213,10 +2034,6 @@ async function openSam2Propagation() {
     state.batch.saving ||
     !state.masks[propagationLabel]
   ) return;
-  if (state.manifest.vessel_only && propagationLabel === "lesion") {
-    setStatus("本项目只标注血管，不能传播肿瘤 Mask", "error");
-    return;
-  }
   if (state.dirty && state.currentItem.reviewed) {
     setStatus("当前已审核帧有新修改，请先按 S 保存，再按 P 传播", "error");
     return;
@@ -1469,7 +2286,6 @@ function openBatchEditor(index) {
   editor.lassoPoints = [];
   editor.strokePoints = [];
   editor.activeLabel = state.batch.propagatedLabel;
-  if (state.manifest.vessel_only) editor.activeLabel = "vessel";
   editor.tool = state.batch.items[position].selectable ? editor.addTool : "pan";
   syncBatchUi();
   requestAnimationFrame(() => {
@@ -1526,8 +2342,7 @@ function setBatchEditorTool(tool) {
 
 function selectBatchEditorLabel(label) {
   const item = currentBatchEditorItem();
-  if (!item?.selectable || !LABELS.includes(label)) return;
-  if (state.manifest.vessel_only && label === "lesion") return;
+  if (!item?.selectable || !categoryFolders().includes(label)) return;
   cancelBatchEditorGesture(true);
   state.batch.editor.activeLabel = label;
   state.batch.editor.tool = state.batch.editor.addTool;
@@ -1578,10 +2393,9 @@ function renderBatchEditor() {
   context.globalCompositeOperation = "source-over";
   context.drawImage(item.sourceImage, 0, 0, width, height);
   if (state.batch.editor.maskVisible) {
-    drawTint(context, item.masks.vessel, "#00dcff");
-    if (!state.manifest.vessel_only) {
-      drawTint(context, item.masks.lesion, "#ff40a0");
-    }
+    categoryFolders().forEach((folderName) => {
+      drawTint(context, item.masks[folderName], labelColor(folderName));
+    });
   }
   const editor = state.batch.editor;
   if (
@@ -1589,14 +2403,14 @@ function renderBatchEditor() {
     editor.tool === "lasso" &&
     editor.lassoPoints.length >= 2
   ) {
-    const isLesion = editor.gestureLabel === "lesion";
+    const color = labelColor(editor.gestureLabel);
     context.save();
     tracePolygon(context, editor.lassoPoints);
-    context.fillStyle = isLesion
-      ? "rgba(255, 64, 160, 0.18)"
-      : "rgba(0, 220, 255, 0.18)";
+    context.fillStyle = color;
+    context.globalAlpha = 0.18;
     context.fill();
-    context.strokeStyle = isLesion ? "#ff40a0" : "#00dcff";
+    context.globalAlpha = 1;
+    context.strokeStyle = color;
     context.lineWidth = 2 / editor.zoom;
     context.setLineDash([6 / editor.zoom, 4 / editor.zoom]);
     context.stroke();
@@ -1633,11 +2447,11 @@ function syncBatchEditorUi() {
     readOnly
       ? "这张帧已经审核，只供放大对照，不能修改或再次保存。"
       : editor.tool === "lasso"
-      ? `正在用套索添加${editor.activeLabel === "vessel" ? "血管" : "肿瘤"} Mask。所有修改先保存在本次预览中。`
+      ? `正在用套索添加${labelDisplayName(editor.activeLabel)} Mask。所有修改先保存在本次预览中。`
       : editor.tool === "paint"
-      ? `正在用画笔填涂${editor.activeLabel === "vessel" ? "血管" : "肿瘤"} Mask。所有修改先保存在本次预览中。`
+      ? `正在用画笔填涂${labelDisplayName(editor.activeLabel)} Mask。所有修改先保存在本次预览中。`
       : editor.tool === "erase"
-      ? `正在擦除${editor.activeLabel === "vessel" ? "血管" : "肿瘤"} Mask。所有修改先保存在本次预览中。`
+      ? `正在擦除${labelDisplayName(editor.activeLabel)} Mask。所有修改先保存在本次预览中。`
       : "拖动画面不会修改 Mask。",
   );
   setBoundText(
@@ -1649,9 +2463,7 @@ function syncBatchEditorUi() {
       "active",
       button.dataset.label === editor.activeLabel,
     );
-    button.disabled =
-      readOnly ||
-      (state.manifest.vessel_only && button.dataset.label === "lesion");
+    button.disabled = readOnly;
   });
   all('[data-action="batch-editor-tool"]').forEach((button) => {
     button.classList.toggle("active", button.dataset.tool === editor.tool);
@@ -1697,7 +2509,7 @@ function pushBatchEditorHistory() {
   const item = currentBatchEditorItem();
   if (!item) return;
   const masks = {};
-  LABELS.forEach((label) => {
+  categoryFolders().forEach((label) => {
     const canvas = item.masks[label];
     masks[label] = canvas
       .getContext("2d", { willReadFrequently: true })
@@ -1819,7 +2631,7 @@ function cancelBatchEditorGesture(restore = true) {
   if (restore && editor.drawing && item) {
     const snapshot = editor.history.pop();
     if (snapshot) {
-      LABELS.forEach((label) => {
+      categoryFolders().forEach((label) => {
         item.masks[label]
           .getContext("2d")
           .putImageData(snapshot.masks[label], 0, 0);
@@ -1856,7 +2668,7 @@ function undoBatchEditor() {
   const item = currentBatchEditorItem();
   const snapshot = state.batch.editor.history.pop();
   if (!item || !snapshot || !item.selectable) return;
-  LABELS.forEach((label) => {
+  categoryFolders().forEach((label) => {
     item.masks[label]
       .getContext("2d")
       .putImageData(snapshot.masks[label], 0, 0);
@@ -1871,7 +2683,7 @@ function resetBatchEditorMask() {
   const item = currentBatchEditorItem();
   if (!item || !item.selectable) return;
   pushBatchEditorHistory();
-  LABELS.forEach((label) => {
+  categoryFolders().forEach((label) => {
     item.masks[label] = cloneMaskCanvas(item.originalMasks[label]);
   });
   item.edited = false;
@@ -1884,7 +2696,7 @@ function clearBatchEditorMasks() {
   const item = currentBatchEditorItem();
   if (!item || !item.selectable) return;
   pushBatchEditorHistory();
-  LABELS.forEach((label) => {
+  categoryFolders().forEach((label) => {
     const canvas = item.masks[label];
     canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
   });
@@ -1906,6 +2718,7 @@ function toggleBatchEditorMask() {
 function syncBatchUi() {
   const modal = document.querySelector('[data-role="batch-modal"]');
   if (!modal) return;
+  syncCategoryManagementControls();
   const propagatedName = labelDisplayName(state.batch.propagatedLabel);
   modal.hidden = !state.batch.open;
   document.body.classList.toggle("batch-modal-open", state.batch.open);
@@ -1926,8 +2739,8 @@ function syncBatchUi() {
   setBoundText(
     "batch-guidance",
     state.batch.overwriteReviewed
-      ? `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。另一类 Mask 保留每帧原有内容。关键帧之前的已审核帧仍受保护。只有手动勾选的向后已审核帧会被重写。`
-      : `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。另一类 Mask 保留每帧原有内容。关键帧之前的已审核帧始终受保护。需要重写向后传播结果时，请开启“允许覆盖向后已审核帧”并手动勾选。`,
+      ? `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。其它活动类别保留每帧原有内容。关键帧之前的已审核帧仍受保护。只有手动勾选的向后已审核帧会被重写。`
+      : `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。其它活动类别保留每帧原有内容。关键帧之前的已审核帧始终受保护。需要重写向后传播结果时，请开启“允许覆盖向后已审核帧”并手动勾选。`,
   );
   all('[data-control="batch-overwrite-reviewed"]').forEach((input) => {
     input.checked = state.batch.overwriteReviewed;
@@ -1970,7 +2783,7 @@ function closeBatchReview(force = false) {
   state.batch.loading = false;
   state.batch.overwriteReviewed = false;
   state.batch.keyframeIndex = null;
-  state.batch.propagatedLabel = "vessel";
+  state.batch.propagatedLabel = state.activeLabel;
   state.batch.editor.open = false;
   state.batch.editor.history = [];
   state.batch.editor.drawing = false;
@@ -2040,8 +2853,12 @@ async function acceptBatchCandidates() {
         keyframe_index: state.batch.keyframeIndex,
         items: selectedItems.map(({ index, masks }) => ({
           index,
-          vessel: exportMaskDataUrl(masks.vessel),
-          lesion: exportMaskDataUrl(masks.lesion),
+          masks: Object.fromEntries(
+            categoryFolders().map((folderName) => [
+              folderName,
+              exportMaskDataUrl(masks[folderName]),
+            ]),
+          ),
         })),
       }),
     });
@@ -2089,8 +2906,11 @@ function renderCanvas() {
   context.globalAlpha = 1;
   context.globalCompositeOperation = "source-over";
   context.drawImage(state.sourceImage, 0, 0, canvas.width, canvas.height);
-  if (state.overlayVisible.vessel && state.masks.vessel) drawTint(context, state.masks.vessel, "#00dcff");
-  if (state.overlayVisible.lesion && state.masks.lesion) drawTint(context, state.masks.lesion, "#ff40a0");
+  categoryFolders().forEach((folderName) => {
+    if (state.overlayVisible[folderName] && state.masks[folderName]) {
+      drawTint(context, state.masks[folderName], labelColor(folderName));
+    }
+  });
   drawLassoPreview(context);
   context.globalAlpha = 1;
   context.globalCompositeOperation = "source-over";
@@ -2105,7 +2925,7 @@ function drawTint(targetContext, maskCanvas, color) {
   context.fillRect(0, 0, tint.width, tint.height);
   context.globalCompositeOperation = "destination-in";
   context.drawImage(maskCanvas, 0, 0);
-  targetContext.globalAlpha = 0.44;
+  targetContext.globalAlpha = MASK_OVERLAY_ALPHA;
   targetContext.drawImage(tint, 0, 0);
 }
 
@@ -2118,18 +2938,26 @@ function pointFromEvent(event) {
 }
 
 function pushHistory() {
-  if (!state.masks.vessel || !state.masks.lesion) return;
+  if (!masksReady()) return;
   const snapshot = {};
-  LABELS.forEach((label) => {
+  categoryFolders().forEach((label) => {
     const canvas = state.masks[label];
-    snapshot[label] = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
+    snapshot[label] = canvas
+      .getContext("2d", { willReadFrequently: true })
+      .getImageData(0, 0, canvas.width, canvas.height);
   });
   state.history.push(snapshot);
   if (state.history.length > 20) state.history.shift();
 }
 
 function beginStroke(event) {
-  if (event.button !== 0 || state.loading || state.saving || !state.masks[state.activeLabel]) return;
+  if (event.button !== 0 || state.loading || state.saving) return;
+  if (!hasMaskCategories()) {
+    openMaskCategoryDialog();
+    return;
+  }
+  if (!state.overlayVisible[state.activeLabel]) return;
+  if (!state.masks[state.activeLabel]) return;
   event.preventDefault();
   state.displayCanvas.setPointerCapture(event.pointerId);
   pushHistory();
@@ -2183,7 +3011,7 @@ function endStroke(event) {
   state.dirty = true;
   const action =
     tool === "lasso" ? "已套索填充" : tool === "paint" ? "已画笔填涂" : "已擦除";
-  setStatus(`${action}${state.activeLabel === "vessel" ? "血管" : "肿瘤"} Mask，按 Enter 保存`);
+  setStatus(`${action}${labelDisplayName(state.activeLabel)} Mask，按 Enter 保存`);
   syncUi();
 }
 
@@ -2191,7 +3019,7 @@ function cancelGesture() {
   if (!state.drawing) return;
   const snapshot = state.history.pop();
   if (snapshot) {
-    LABELS.forEach((label) => {
+    categoryFolders().forEach((label) => {
       const canvas = state.masks[label];
       canvas.getContext("2d").putImageData(snapshot[label], 0, 0);
     });
@@ -2242,11 +3070,13 @@ function fillLasso() {
 
 function drawLassoPreview(context) {
   if (!state.drawing || state.tool !== "lasso" || state.lassoPoints.length < 2) return;
-  const color = state.gestureLabel === "lesion" ? "#ff40a0" : "#00dcff";
+  const color = labelColor(state.gestureLabel);
   context.save();
   tracePolygon(context, state.lassoPoints);
-  context.fillStyle = state.gestureLabel === "lesion" ? "rgba(255, 64, 160, 0.18)" : "rgba(0, 220, 255, 0.18)";
+  context.fillStyle = color;
+  context.globalAlpha = 0.18;
   context.fill();
+  context.globalAlpha = 1;
   context.strokeStyle = color;
   context.lineWidth = 2 / state.zoom;
   context.setLineDash([6 / state.zoom, 4 / state.zoom]);
@@ -2292,7 +3122,7 @@ function undo() {
     setStatus("没有可以撤销的笔画");
     return;
   }
-  LABELS.forEach((label) => {
+  categoryFolders().forEach((label) => {
     const canvas = state.masks[label];
     canvas.getContext("2d").putImageData(snapshot[label], 0, 0);
   });
@@ -2317,9 +3147,9 @@ async function resetToCandidate() {
 }
 
 function clearAllMasks() {
-  if (state.loading || state.saving || !state.masks.vessel || !state.masks.lesion) return;
+  if (state.loading || state.saving || !masksReady()) return;
   pushHistory();
-  LABELS.forEach((label) => {
+  categoryFolders().forEach((label) => {
     const canvas = state.masks[label];
     canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
   });
@@ -2341,7 +3171,7 @@ function exportMaskDataUrl(maskCanvas) {
 }
 
 async function saveCurrent(advance = true) {
-  if (state.loading || state.saving || !state.masks.vessel || !state.masks.lesion) return;
+  if (state.loading || state.saving || !masksReady()) return;
   state.saving = true;
   setStatus("正在写入标定图片和 Mask…");
   syncUi();
@@ -2350,8 +3180,12 @@ async function saveCurrent(advance = true) {
       method: "POST",
       headers: projectHeaders(),
       body: JSON.stringify({
-        vessel: exportMaskDataUrl(state.masks.vessel),
-        lesion: exportMaskDataUrl(state.masks.lesion),
+        masks: Object.fromEntries(
+          categoryFolders().map((folderName) => [
+            folderName,
+            exportMaskDataUrl(state.masks[folderName]),
+          ]),
+        ),
       }),
     });
     const result = await response.json();
@@ -2379,14 +3213,19 @@ function navigate(delta) {
 }
 
 function toggleMask(label) {
+  if (!categoryFolders().includes(label) || state.loading || state.saving) return;
   state.overlayVisible[label] = !state.overlayVisible[label];
+  if (!state.overlayVisible[label] && label === state.activeLabel) {
+    cancelGesture();
+    setStatus("当前类别已隐藏。重新选择该类别后可继续绘制。");
+  }
   renderCanvas();
   syncUi();
 }
 
 function toggleAllMasks() {
-  const anyVisible = LABELS.some((label) => state.overlayVisible[label]);
-  LABELS.forEach((label) => {
+  const anyVisible = categoryFolders().some((label) => state.overlayVisible[label]);
+  categoryFolders().forEach((label) => {
     state.overlayVisible[label] = !anyVisible;
   });
   renderCanvas();
@@ -2403,6 +3242,35 @@ function isEditableTarget(target) {
 }
 
 window.addEventListener("keydown", (event) => {
+  const conflictModal = document.querySelector(
+    '[data-role="mask-category-conflict-modal"]',
+  );
+  if (conflictModal && !conflictModal.hidden) {
+    trapDialogFocus(event, conflictModal);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMaskCategoryConflict(true);
+    }
+    return;
+  }
+  const archiveModal = document.querySelector('[data-role="mask-archive-modal"]');
+  if (archiveModal && !archiveModal.hidden) {
+    trapDialogFocus(event, archiveModal);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMaskArchiveDialog();
+    }
+    return;
+  }
+  const categoryModal = document.querySelector('[data-role="mask-category-modal"]');
+  if (categoryModal && !categoryModal.hidden) {
+    trapDialogFocus(event, categoryModal);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMaskCategoryDialog();
+    }
+    return;
+  }
   if (state.batch.open) {
     if (state.batch.editor.open) {
       if (event.key === "Escape" || event.key === "Enter") {
@@ -2419,12 +3287,9 @@ window.addEventListener("keydown", (event) => {
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
         moveBatchEditor(1);
-      } else if (event.key === "1") {
+      } else if (/^[1-5]$/.test(event.key)) {
         event.preventDefault();
-        selectBatchEditorLabel("vessel");
-      } else if (event.key === "2") {
-        event.preventDefault();
-        selectBatchEditorLabel("lesion");
+        selectBatchEditorLabel(categoryFolders()[Number(event.key) - 1]);
       } else if (event.key.toLowerCase() === "q") {
         event.preventDefault();
         setBatchEditorTool("lasso");
@@ -2483,10 +3348,8 @@ window.addEventListener("keydown", (event) => {
   } else if (event.key.toLowerCase() === "s") {
     event.preventDefault();
     saveCurrent(false);
-  } else if (event.key === "1") {
-    selectLabel("vessel");
-  } else if (event.key === "2") {
-    selectLabel("lesion");
+  } else if (/^[1-5]$/.test(event.key)) {
+    selectLabel(categoryFolders()[Number(event.key) - 1]);
   } else if (event.key.toLowerCase() === "q") {
     setDrawTool("lasso");
   } else if (event.key.toLowerCase() === "w") {
@@ -2497,10 +3360,6 @@ window.addEventListener("keydown", (event) => {
     setBrushSize(state.brushSize - 3);
   } else if (event.key === "]") {
     setBrushSize(state.brushSize + 3);
-  } else if (event.key.toLowerCase() === "v") {
-    toggleMask("vessel");
-  } else if (event.key.toLowerCase() === "l") {
-    toggleMask("lesion");
   } else if (event.key.toLowerCase() === "m" || event.key.toLowerCase() === "h") {
     toggleAllMasks();
   } else if (event.key.toLowerCase() === "x") {
@@ -2548,6 +3407,16 @@ async function init() {
       );
     }
     state.manifest = manifest;
+    state.manifest.archived_mask_categories ||= [];
+    state.activeLabel = manifest.mask_categories[0]?.folder_name || null;
+    state.overlayVisible = Object.fromEntries(
+      manifest.mask_categories.map(({ folder_name: folderName }) => [
+        folderName,
+        true,
+      ]),
+    );
+    state.batch.propagatedLabel = state.activeLabel;
+    state.batch.editor.activeLabel = state.activeLabel;
     const requestedIndex = Number(new URLSearchParams(window.location.search).get("index"));
     state.index = Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < manifest.total ? requestedIndex : 0;
     buildReviewer();
