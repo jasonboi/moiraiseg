@@ -90,8 +90,8 @@ GUI_ENGLISH = {
     "SAM2 向前传播帧数必须在 0 到 32 之间": (
         "The SAM2 previous-frame range must be between 0 and 32."
     ),
-    "SAM2 向后传播帧数必须在 0 到 32 之间": (
-        "The SAM2 following-frame range must be between 0 and 32."
+    "SAM2 向后传播帧数不能小于 0": (
+        "The SAM2 following-frame range cannot be negative."
     ),
     "SAM2 设备无效": "The SAM2 device is invalid.",
     "端口必须在 1024 到 65535 之间": (
@@ -264,8 +264,8 @@ def validate_settings(settings: LauncherSettings) -> None:
         raise ValueError("处理后目录不能与原始目录相同，也不能放在其内部")
     if not 0 <= settings.sam2_before_frames <= 32:
         raise ValueError("SAM2 向前传播帧数必须在 0 到 32 之间")
-    if not 0 <= settings.sam2_after_frames <= 32:
-        raise ValueError("SAM2 向后传播帧数必须在 0 到 32 之间")
+    if settings.sam2_after_frames < 0:
+        raise ValueError("SAM2 向后传播帧数不能小于 0")
     if settings.device not in {"auto", "cuda", "cpu"}:
         raise ValueError("SAM2 设备无效")
     if not 1024 <= settings.port <= 65535:
@@ -736,7 +736,7 @@ class DataSegGui:
             options.columnconfigure(column, weight=1)
 
         self._small_field(options, 0, "SAM2 向前", self.before_var, "spin")
-        self._small_field(options, 1, "SAM2 向后", self.after_var, "spin")
+        self._small_field(options, 1, "SAM2 向后", self.after_var, "entry")
         self._small_field(
             options,
             2,

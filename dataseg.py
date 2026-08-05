@@ -263,7 +263,12 @@ def prompt_text(label: str, default: str = "") -> str:
     return value or default
 
 
-def prompt_integer(label: str, default: int, minimum: int, maximum: int) -> int:
+def prompt_integer(
+    label: str,
+    default: int,
+    minimum: int,
+    maximum: int | None,
+) -> int:
     while True:
         value = prompt_text(label, str(default))
         try:
@@ -271,9 +276,12 @@ def prompt_integer(label: str, default: int, minimum: int, maximum: int) -> int:
         except ValueError:
             print("请输入整数。")
             continue
-        if minimum <= parsed <= maximum:
+        if parsed >= minimum and (maximum is None or parsed <= maximum):
             return parsed
-        print(f"请输入 {minimum} 到 {maximum} 之间的整数。")
+        if maximum is None:
+            print(f"请输入不小于 {minimum} 的整数。")
+        else:
+            print(f"请输入 {minimum} 到 {maximum} 之间的整数。")
 
 
 def resolve_path(value: str, field: str) -> Path:
@@ -317,11 +325,13 @@ def configure(args: argparse.Namespace) -> None:
             "SAM2 向后传播帧数",
             int(config.get("sam2_after_frames", 16)),
             0,
-            32,
+            None,
         )
     )
-    if not 0 <= before <= 32 or not 0 <= after <= 32:
-        raise ValueError("SAM2 传播帧数必须在 0 到 32 之间")
+    if not 0 <= before <= 32:
+        raise ValueError("SAM2 向前传播帧数必须在 0 到 32 之间")
+    if after < 0:
+        raise ValueError("SAM2 向后传播帧数不能小于 0")
 
     device = args.device or prompt_text(
         "SAM2 设备（auto/cuda/cpu）",

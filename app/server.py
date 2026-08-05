@@ -153,8 +153,8 @@ class ReviewerStore:
         )
         if not 0 <= sam2_before_frames <= 32:
             raise ValueError("sam2_before_frames must be between 0 and 32")
-        if not 0 <= sam2_after_frames <= 32:
-            raise ValueError("sam2_after_frames must be between 0 and 32")
+        if sam2_after_frames < 0:
+            raise ValueError("sam2_after_frames must not be negative")
         self.sam2_before_frames = sam2_before_frames
         self.sam2_after_frames = sam2_after_frames
         self.state_path = self.internal_root / "reviewer_state.json"
@@ -818,8 +818,14 @@ class ReviewerStore:
         before: int,
         after: int,
     ) -> PropagationWindow:
-        if not 0 <= before <= 32 or not 0 <= after <= 32:
-            raise ValueError("SAM2 propagation range must be between 0 and 32")
+        if not 0 <= before <= 32:
+            raise ValueError(
+                "SAM2 previous-frame range must be between 0 and 32"
+            )
+        if after < 0:
+            raise ValueError(
+                "SAM2 following-frame range must not be negative"
+            )
         keyframe = self.item(index)
         clip = keyframe["clip"]
         start = index

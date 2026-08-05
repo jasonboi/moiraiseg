@@ -314,7 +314,7 @@ SAM2 propagates the selected Mask category while every other category keeps its 
 
 In the propagation preview, Shift-click a checkbox to select or clear a frame range, or hold the pointer and drag across checkboxes to update several frames. In the enlarged editor, press `X` to clear every Mask on the current frame and `Ctrl+Z` to undo.
 
-The default range is 4 previous frames and 16 following frames. Each value may be between 0 and 32. Unselect inaccurate frames and choose a new keyframe when the probe moves, the target shape changes, the view changes, or the target leaves the image.
+The default range is 4 previous frames and 16 following frames. The previous-frame range may be between 0 and 32. The following-frame range accepts any non-negative value and stops automatically at the end of the current clip. Larger ranges use more GPU memory and take longer to process. Unselect inaccurate frames and choose a new keyframe when the probe moves, the target shape changes, the view changes, or the target leaves the image.
 
 ## Troubleshooting
 
