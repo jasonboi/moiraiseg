@@ -728,6 +728,57 @@ class ReviewerStore:
             )
             return category.to_dict()
 
+    def permanently_delete_mask_archive(
+        self,
+        archive_id: str,
+    ) -> dict[str, object]:
+        """Permanently remove one archived category and all of its Mask data."""
+        with self._category_mutation():
+            try:
+                updated_catalog, archived = (
+                    self.mask_categories.permanently_delete_archive(archive_id)
+                )
+            except RuntimeError as error:
+                raise ValueError(str(error)) from error
+
+            source_root = self._archive_storage_path(archived.archive_path)
+            if not source_root.is_dir():
+                raise ValueError("Mask category archive data is missing")
+            deletion_root = self.mask_archive_root / (
+                f".deleting-{archived.archive_id}-{uuid.uuid4().hex}"
+            )
+            if deletion_root.exists():
+                raise ValueError("Mask category deletion staging path already exists")
+
+            previous_project = self.project
+            previous_catalog = self.mask_categories
+            updated_project = updated_catalog.write_to(self.project)
+            snapshots = self._file_snapshots((self.project_path,))
+            moved = False
+            try:
+                os.replace(source_root, deletion_root)
+                moved = True
+                atomic_write_json(self.project_path, updated_project)
+                self.project = updated_project
+                self.mask_categories = updated_catalog
+                shutil.rmtree(deletion_root)
+            except Exception:
+                self.project = previous_project
+                self.mask_categories = previous_catalog
+                if moved and deletion_root.exists() and not source_root.exists():
+                    os.replace(deletion_root, source_root)
+                self._restore_file_snapshots(snapshots)
+                raise
+
+            try:
+                self.mask_archive_root.rmdir()
+            except OSError:
+                pass
+            return {
+                **archived.to_public_dict(),
+                "deleted": True,
+            }
+
     def update_mask_category(
         self,
         folder_name: str,
@@ -1404,6 +1455,11 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                 return
             if len(parts) == 4 and parts[:3] == ["api", "sam2", "reviews"]:
                 self._send_json(self.store.close_sam2_review(parts[3]))
+                return
+            if len(parts) == 3 and parts[:2] == ["api", "mask-archives"]:
+                self._send_json(
+                    self.store.permanently_delete_mask_archive(parts[2])
+                )
                 return
             if len(parts) != 3 or parts[:2] != ["api", "mask-categories"]:
                 self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)

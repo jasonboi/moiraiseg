@@ -41,6 +41,16 @@ env/
 *.temp
 *.pid
 
+# Local issue tracker
+/.scratch/
+
+# Local agent instructions and workflow docs
+/AGENTS.md
+/docs/agents/
+
+# Local browser automation state
+/.playwright-cli/
+
 # Downloaded SAM2 checkpoints
 /sam2/checkpoints/*.pt
 /sam2/checkpoints/*.pth

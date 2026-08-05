@@ -415,6 +415,36 @@ button:active:not(:disabled) {
   background: var(--danger-soft);
 }
 
+.danger-button {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid #d16069;
+  border-radius: 8px;
+  background: #a93440;
+  box-shadow: 0 4px 14px rgba(111, 20, 31, 0.26);
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  transition:
+    border-color 130ms ease,
+    background 130ms ease,
+    box-shadow 130ms ease,
+    transform 100ms ease;
+}
+
+.danger-button:hover {
+  border-color: #ee7a82;
+  background: #bd3e49;
+  box-shadow: 0 5px 16px rgba(111, 20, 31, 0.32);
+}
+
+.danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+  transform: none;
+}
+
 .icon-button {
   display: grid;
   width: 38px;
@@ -1128,6 +1158,41 @@ input[type="range"] {
 .mask-category-archive-row .plain-button {
   min-height: 34px;
   padding: 0 10px;
+}
+
+.mask-category-archive-actions {
+  display: grid;
+  min-width: 96px;
+  gap: 6px;
+}
+
+.mask-archive-delete-dialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.mask-archive-delete-warning {
+  color: #ffb2b6;
+}
+
+.mask-archive-delete-target {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 11px 12px;
+  border: 1px solid #66333b;
+  border-radius: 10px;
+  background: var(--danger-soft);
+}
+
+.mask-archive-delete-target .mask-category-archive-swatch {
+  height: 36px;
+}
+
+.mask-archive-delete-dialog form footer {
+  padding-top: 2px;
 }
 
 .mask-archive-empty {
@@ -2066,6 +2131,29 @@ input[type="range"] {
   .reviewer-layout .workspace {
     grid-template-columns: 132px minmax(240px, 1fr) 180px;
     overflow: auto;
+  }
+
+  .mask-category-modal {
+    padding: 8px;
+  }
+
+  .mask-category-dialog {
+    width: calc(100vw - 16px);
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .mask-category-dialog input:not([type="color"]) {
+    font-size: 16px;
+  }
+
+  .mask-category-archive-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .mask-category-archive-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .batch-modal {

@@ -26,10 +26,10 @@ def main() -> None:
     checkpoint = sam2_repo / "checkpoints" / "sam2.1_hiera_tiny.pt"
     server_path = tool_root / "app" / "server.py"
 
+    # A new zero-category project intentionally has no candidate Mask directory.
     required = [
         raw_data_dir,
         internal_root / "prepared",
-        internal_root / "candidate_labels",
         internal_root / "annotation_index.json",
         internal_root / "project.json",
         checkpoint,

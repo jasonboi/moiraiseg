@@ -453,6 +453,37 @@ class MaskCategoryCatalog:
             archived,
         )
 
+    def permanently_delete_archive(
+        self,
+        archive_id: str,
+    ) -> tuple["MaskCategoryCatalog", ArchivedMaskCategory]:
+        """Remove one archived category from the project catalog."""
+        normalized_archive_id = _validated_archive_id(archive_id)
+        archived = next(
+            (
+                archived_category
+                for archived_category in self.archived
+                if archived_category.archive_id == normalized_archive_id
+            ),
+            None,
+        )
+        if archived is None:
+            raise RuntimeError(
+                f"Mask category archive does not exist: {normalized_archive_id}"
+            )
+        remaining_archives = tuple(
+            archived_category
+            for archived_category in self.archived
+            if archived_category.archive_id != normalized_archive_id
+        )
+        return (
+            MaskCategoryCatalog(
+                active=self.active,
+                archived=remaining_archives,
+            ),
+            archived,
+        )
+
     def archives_for_folder(
         self,
         folder_name: str,

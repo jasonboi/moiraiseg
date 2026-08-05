@@ -23,10 +23,21 @@ const ENGLISH_TEXT = {
   "隐藏": "Hide",
   "显示": "Show",
   "归档恢复": "Archive recovery",
+  "归档管理": "Archive management",
   "暂无归档类别": "No archived categories",
   "归档的 Mask 类别": "Archived Mask categories",
-  "归档类别保存在当前项目中，可以恢复原有 Mask。": "Archived categories stay in this project and can restore their original Masks.",
+  "归档类别保存在当前项目中，可以恢复，也可以永久删除。": "Archived categories stay in this project. You can restore or permanently delete them.",
   "恢复": "Restore",
+  "永久删除": "Delete forever",
+  "永久删除归档": "Permanently delete archive",
+  "这会永久删除归档 Mask 和类别记录，无法撤销。": "This permanently deletes the archived Masks and category record. It cannot be undone.",
+  "输入文件夹名字以确认": "Enter the folder name to confirm",
+  "请准确输入上方显示的文件夹名字。": "Enter the folder name shown above exactly.",
+  "返回归档": "Back to archive",
+  "正在永久删除…": "Deleting forever…",
+  "输入的文件夹名字不匹配。": "The folder name does not match.",
+  "无法永久删除 Mask 归档": "Could not permanently delete the Mask archive",
+  "关闭永久删除确认": "Close permanent deletion confirmation",
   "正在恢复…": "Restoring…",
   "归档时间": "Archived",
   "关闭归档列表": "Close archive list",
@@ -190,6 +201,7 @@ function englishDynamicText(value) {
     [/^已更新 (.+) Mask$/, (match, label) => `Updated the ${label} Mask`],
     [/^已归档 (.+) Mask，可从归档恢复$/, (match, label) => `Archived the ${label} Mask. You can restore it from Archive recovery.`],
     [/^已恢复 (.+) Mask 和归档数据$/, (match, label) => `Restored the ${label} Mask and its archived data.`],
+    [/^已永久删除 (.+) 的归档 Mask$/, (match, label) => `Permanently deleted the archived ${label} Masks.`],
     [/^(\d+) 个归档$/, "$1 archived"],
     [/^查看 (\d+) 个归档类别$/, "View $1 archived categories"],
     [/^按住鼠标擦除(.+) Mask。$/, (match, label) => `Hold the pointer to erase the ${label} Mask.`],
@@ -371,6 +383,8 @@ const state = {
   categoryConflict: null,
   categoryDialogReturnFocus: null,
   archiveDialogReturnFocus: null,
+  archiveDeleteTarget: null,
+  archiveDeleteReturnFocus: null,
   status: { text: "", tone: "" },
 };
 
@@ -540,7 +554,7 @@ function maskCategoriesMarkup() {
       <div class="mask-category-list">${categoryRowsMarkup()}</div>
       <footer class="mask-category-archive-footer">
         <button class="mask-category-archive-placeholder" type="button" data-action="open-mask-archives" aria-haspopup="dialog"${archiveCount ? "" : " disabled"} title="${archiveCount ? `查看 ${archiveCount} 个归档类别` : "暂无归档类别"}">
-          <span>归档恢复</span><small>${archiveCount ? `${archiveCount} 个归档` : "暂无归档类别"}</small>
+          <span>归档管理</span><small>${archiveCount ? `${archiveCount} 个归档` : "暂无归档类别"}</small>
         </button>
       </footer>
     </div>`;
@@ -567,9 +581,18 @@ function archiveRowsMarkup({ conflict = false } = {}) {
     const displayName = escapeHtml(archive.display_name);
     const folderName = escapeHtml(archive.folder_name);
     const color = escapeHtml(archive.color);
-    const action = conflict
+    const restoreAction = conflict
       ? "restore-conflicting-archive"
       : "restore-mask-category";
+    const restoreDisabled = maskCategories().length >= MAX_MASK_CATEGORIES
+      ? ' disabled title="活动类别已达到 5 个，请先归档一个类别再恢复。"'
+      : "";
+    const actions = conflict
+      ? `<button class="plain-button" type="button" data-action="${restoreAction}" data-archive-id="${archiveId}"${restoreDisabled}>恢复</button>`
+      : `<span class="mask-category-archive-actions">
+          <button class="plain-button" type="button" data-action="${restoreAction}" data-archive-id="${archiveId}"${restoreDisabled}>恢复</button>
+          <button class="plain-button danger" type="button" data-action="delete-mask-archive" data-archive-id="${archiveId}">永久删除</button>
+        </span>`;
     return `
       <article class="mask-category-archive-row" style="--category-color: ${color}">
         <span class="mask-category-archive-swatch" aria-hidden="true"></span>
@@ -578,7 +601,7 @@ function archiveRowsMarkup({ conflict = false } = {}) {
           <code data-no-translate title="${folderName}">${folderName}</code>
           <small><span>归档时间</span> <time datetime="${escapeHtml(archive.archived_at)}">${escapeHtml(formatArchiveTime(archive.archived_at))}</time></small>
         </span>
-        <button class="plain-button" type="button" data-action="${action}" data-archive-id="${archiveId}"${maskCategories().length >= MAX_MASK_CATEGORIES ? ' disabled title="活动类别已达到 5 个，请先归档一个类别再恢复。"' : ""}>恢复</button>
+        ${actions}
       </article>`;
   }).join("");
 }
@@ -592,9 +615,42 @@ function maskArchiveDialogMarkup() {
           <h2 id="mask-archive-title">归档的 Mask 类别</h2>
           <button class="mask-category-close-button" type="button" data-action="close-mask-archives">关闭</button>
         </header>
-        <p class="mask-category-intro">归档类别保存在当前项目中，可以恢复原有 Mask。</p>
+        <p class="mask-category-intro">归档类别保存在当前项目中，可以恢复，也可以永久删除。</p>
         <div class="mask-category-archive-list" data-role="mask-archive-list">${archiveRowsMarkup()}</div>
         <p class="mask-category-error" data-bind="mask-archive-error" role="alert"></p>
+      </section>
+    </div>`;
+}
+
+function maskArchiveDeleteDialogMarkup() {
+  return `
+    <div class="mask-category-modal" data-role="mask-archive-delete-modal" hidden>
+      <button class="mask-category-backdrop" data-action="cancel-mask-archive-delete" aria-label="关闭永久删除确认"></button>
+      <section class="mask-category-dialog mask-archive-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="mask-archive-delete-title">
+        <header>
+          <h2 id="mask-archive-delete-title">永久删除归档</h2>
+          <button class="mask-category-close-button" type="button" data-action="cancel-mask-archive-delete">返回归档</button>
+        </header>
+        <p class="mask-category-intro mask-archive-delete-warning">这会永久删除归档 Mask 和类别记录，无法撤销。</p>
+        <div class="mask-archive-delete-target" data-role="mask-archive-delete-target">
+          <span class="mask-category-archive-swatch" aria-hidden="true"></span>
+          <span class="mask-category-archive-details">
+            <strong data-bind="mask-archive-delete-name" data-no-translate></strong>
+            <code data-bind="mask-archive-delete-folder" data-no-translate></code>
+          </span>
+        </div>
+        <form data-form="mask-archive-delete">
+          <label>
+            <span>输入文件夹名字以确认</span>
+            <input name="folder_name_confirmation" type="text" maxlength="32" autocomplete="off" spellcheck="false" required data-no-translate aria-describedby="mask-archive-delete-hint" />
+            <small id="mask-archive-delete-hint">请准确输入上方显示的文件夹名字。</small>
+          </label>
+          <p class="mask-category-error" data-bind="mask-archive-delete-error" role="alert"></p>
+          <footer>
+            <button class="plain-button" type="button" data-action="cancel-mask-archive-delete">返回归档</button>
+            <button class="danger-button" type="submit" data-action="confirm-mask-archive-delete" data-bind="confirm-mask-archive-delete" disabled>永久删除</button>
+          </footer>
+        </form>
       </section>
     </div>`;
 }
@@ -893,6 +949,7 @@ function renderReviewer() {
     ${batchReviewMarkup()}
     ${maskCategoryDialogMarkup()}
     ${maskArchiveDialogMarkup()}
+    ${maskArchiveDeleteDialogMarkup()}
     ${maskCategoryConflictDialogMarkup()}`;
 }
 
@@ -1046,6 +1103,10 @@ function syncCategoryManagementControls() {
     button.disabled =
       managementBusy || maskCategories().length >= MAX_MASK_CATEGORIES;
   });
+  all('[data-action="delete-mask-archive"]').forEach((button) => {
+    button.disabled = managementBusy;
+  });
+  syncMaskArchiveDeleteConfirmation();
   if (managementBusy) {
     all("[data-category-menu]:popover-open").forEach((menu) => menu.hidePopover());
   }
@@ -1122,6 +1183,9 @@ function refreshMaskArchiveDialog() {
 function wireMaskArchiveControls(root = document) {
   root.querySelectorAll('[data-action="restore-mask-category"]').forEach((button) => {
     button.addEventListener("click", () => restoreMaskCategory(button.dataset.archiveId));
+  });
+  root.querySelectorAll('[data-action="delete-mask-archive"]').forEach((button) => {
+    button.addEventListener("click", () => requestMaskArchiveDeletion(button));
   });
 }
 
@@ -1211,8 +1275,7 @@ function openMaskArchiveDialog(event) {
   document.body.classList.add("mask-category-modal-open");
   applyLanguage();
   requestAnimationFrame(() => {
-    modal.querySelector('[data-action="restore-mask-category"]')
-      ?.focus();
+    focusableDialogElements(modal)[0]?.focus();
   });
 }
 
@@ -1225,6 +1288,123 @@ function closeMaskArchiveDialog() {
   const returnFocus = state.archiveDialogReturnFocus;
   state.archiveDialogReturnFocus = null;
   if (returnFocus?.isConnected) requestAnimationFrame(() => returnFocus.focus());
+}
+
+function syncMaskArchiveDeleteConfirmation() {
+  const form = document.querySelector('[data-form="mask-archive-delete"]');
+  if (!form) return;
+  const input = form.elements.folder_name_confirmation;
+  const confirmButton = form.querySelector(
+    '[data-action="confirm-mask-archive-delete"]',
+  );
+  confirmButton.disabled =
+    state.archiveSaving ||
+    !state.archiveDeleteTarget ||
+    input.value !== state.archiveDeleteTarget.folder_name;
+}
+
+function requestMaskArchiveDeletion(button) {
+  if (categoryDestructiveOperationBlocked()) return;
+  const archive = archivedMaskCategories().find(
+    ({ archive_id: archiveId }) => archiveId === button.dataset.archiveId,
+  );
+  if (!archive) return;
+  const archiveModal = document.querySelector('[data-role="mask-archive-modal"]');
+  const deleteModal = document.querySelector(
+    '[data-role="mask-archive-delete-modal"]',
+  );
+  const form = document.querySelector('[data-form="mask-archive-delete"]');
+  const target = document.querySelector('[data-role="mask-archive-delete-target"]');
+  if (!archiveModal || !deleteModal || !form || !target) return;
+  state.archiveDeleteTarget = archive;
+  state.archiveDeleteReturnFocus = button;
+  form.reset();
+  target.style.setProperty("--category-color", archive.color);
+  setBoundText("mask-archive-delete-name", archive.display_name);
+  setBoundText("mask-archive-delete-folder", archive.folder_name);
+  setBoundText("mask-archive-delete-error", "");
+  setBoundText("confirm-mask-archive-delete", "永久删除");
+  archiveModal.hidden = true;
+  deleteModal.hidden = false;
+  syncMaskArchiveDeleteConfirmation();
+  applyLanguage();
+  requestAnimationFrame(() => form.elements.folder_name_confirmation.focus());
+}
+
+function cancelMaskArchiveDeletion() {
+  if (state.archiveSaving) return;
+  const deleteModal = document.querySelector(
+    '[data-role="mask-archive-delete-modal"]',
+  );
+  const archiveModal = document.querySelector('[data-role="mask-archive-modal"]');
+  if (!deleteModal || !archiveModal) return;
+  const archiveId = state.archiveDeleteTarget?.archive_id;
+  const returnFocus = state.archiveDeleteReturnFocus;
+  deleteModal.hidden = true;
+  archiveModal.hidden = false;
+  state.archiveDeleteTarget = null;
+  state.archiveDeleteReturnFocus = null;
+  applyLanguage();
+  requestAnimationFrame(() => {
+    if (returnFocus?.isConnected) {
+      returnFocus.focus();
+      return;
+    }
+    archiveModal.querySelector(
+      `[data-action="delete-mask-archive"][data-archive-id="${CSS.escape(archiveId || "")}"]`,
+    )?.focus();
+  });
+}
+
+async function permanentlyDeleteMaskArchive(event) {
+  event.preventDefault();
+  const target = state.archiveDeleteTarget;
+  if (!target || categoryDestructiveOperationBlocked()) return;
+  const form = event.currentTarget;
+  const confirmation = form.elements.folder_name_confirmation.value;
+  if (confirmation !== target.folder_name) {
+    setBoundText("mask-archive-delete-error", "输入的文件夹名字不匹配。");
+    form.elements.folder_name_confirmation.focus();
+    return;
+  }
+  state.archiveSaving = true;
+  setBoundText("mask-archive-delete-error", "");
+  setBoundText("confirm-mask-archive-delete", "正在永久删除…");
+  syncCategoryManagementControls();
+  try {
+    const response = await fetch(
+      `/api/mask-archives/${encodeURIComponent(target.archive_id)}`,
+      { method: "DELETE", headers: projectHeaders() },
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "无法永久删除 Mask 归档");
+    }
+    state.manifest.archived_mask_categories = archivedMaskCategories().filter(
+      ({ archive_id: archiveId }) => archiveId !== target.archive_id,
+    );
+    state.archiveSaving = false;
+    state.archiveDeleteTarget = null;
+    state.archiveDeleteReturnFocus = null;
+    document.querySelector('[data-role="mask-archive-delete-modal"]').hidden = true;
+    refreshMaskCategoryControls();
+    const archiveModal = document.querySelector('[data-role="mask-archive-modal"]');
+    if (archivedMaskCategories().length) {
+      archiveModal.hidden = false;
+      applyLanguage();
+      requestAnimationFrame(() => focusableDialogElements(archiveModal)[0]?.focus());
+    } else {
+      closeMaskArchiveDialog();
+      focusCurrentCategoryControl();
+    }
+    setStatus(`已永久删除 ${target.display_name} 的归档 Mask`, "success");
+  } catch (error) {
+    state.archiveSaving = false;
+    setBoundText("mask-archive-delete-error", error.message);
+    setBoundText("confirm-mask-archive-delete", "永久删除");
+    syncCategoryManagementControls();
+    form.elements.folder_name_confirmation.focus();
+  }
 }
 
 async function restoreMaskCategory(archiveId, { fromConflict = false } = {}) {
@@ -1367,6 +1547,9 @@ function wireControls() {
   all('[data-action="close-mask-archives"]').forEach((button) => {
     button.addEventListener("click", closeMaskArchiveDialog);
   });
+  all('[data-action="cancel-mask-archive-delete"]').forEach((button) => {
+    button.addEventListener("click", cancelMaskArchiveDeletion);
+  });
   all('[data-action="cancel-mask-category-conflict"]').forEach((button) => {
     button.addEventListener("click", () => closeMaskCategoryConflict(true));
   });
@@ -1380,6 +1563,19 @@ function wireControls() {
     colorInput.addEventListener("input", () => {
       setBoundText("mask-category-color", colorInput.value.toUpperCase());
     });
+  }
+  const archiveDeleteForm = document.querySelector(
+    '[data-form="mask-archive-delete"]',
+  );
+  if (archiveDeleteForm) {
+    archiveDeleteForm.addEventListener("submit", permanentlyDeleteMaskArchive);
+    archiveDeleteForm.elements.folder_name_confirmation.addEventListener(
+      "input",
+      () => {
+        setBoundText("mask-archive-delete-error", "");
+        syncMaskArchiveDeleteConfirmation();
+      },
+    );
   }
   all('[data-action="tool"]').forEach((button) => {
     button.addEventListener("click", () => setDrawTool(button.dataset.tool));
@@ -3325,6 +3521,17 @@ function isEditableTarget(target) {
 }
 
 window.addEventListener("keydown", (event) => {
+  const archiveDeleteModal = document.querySelector(
+    '[data-role="mask-archive-delete-modal"]',
+  );
+  if (archiveDeleteModal && !archiveDeleteModal.hidden) {
+    trapDialogFocus(event, archiveDeleteModal);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelMaskArchiveDeletion();
+    }
+    return;
+  }
   const conflictModal = document.querySelector(
     '[data-role="mask-category-conflict-modal"]',
   );

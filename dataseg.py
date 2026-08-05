@@ -424,7 +424,7 @@ def start(args: argparse.Namespace) -> None:
     else:
         popen_kwargs["start_new_session"] = True
 
-    with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
+    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         process = subprocess.Popen(
             [
                 sys.executable,
