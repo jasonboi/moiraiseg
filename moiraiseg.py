@@ -49,6 +49,17 @@ REQUIRED_IMPORTS = (
 )
 
 
+def configure_standard_streams() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except ValueError:
+            pass
+
+
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
@@ -642,6 +653,7 @@ def interactive_menu(parser: argparse.ArgumentParser) -> argparse.Namespace:
 
 
 def main() -> int:
+    configure_standard_streams()
     parser = build_parser()
     args = parser.parse_args()
     if args.command is None:
