@@ -29,7 +29,7 @@ from app.mask_categories import (  # noqa: E402
 
 
 FRAME_PATTERN = re.compile(r"(?:^|[_-])(\d+)(?:[_-]|\.)")
-INTERNAL_DIR_NAME = ".dataseg"
+INTERNAL_DIR_NAME = ".moiraiseg"
 CONTENT_SIGNATURE_VERSION = 1
 HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -40,7 +40,7 @@ def utc_now() -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Prepare raw ultrasound frame folders for DataSeg."
+        description="Prepare ordered 2D image frame folders for MoiraiSeg."
     )
     parser.add_argument(
         "--config",
@@ -343,10 +343,10 @@ def ensure_project_compatible(
     previous = read_json(project_path)
     categories = MaskCategoryCatalog.from_project(previous)
     if not str(previous.get("project_id", "")).strip():
-        raise RuntimeError("The DataSeg project is missing project_id")
+        raise RuntimeError("The MoiraiSeg project is missing project_id")
     previous_raw_value = str(previous.get("raw_data_dir", "")).strip()
     if not previous_raw_value:
-        raise RuntimeError("The DataSeg project is missing raw_data_dir")
+        raise RuntimeError("The MoiraiSeg project is missing raw_data_dir")
     path_changed = Path(previous_raw_value).expanduser().resolve() != raw_root
     count = reviewed_count(output_root)
     previous_clips = previous.get("clips", {})
@@ -626,7 +626,7 @@ def main() -> None:
         {
             "schema_version": PROJECT_SCHEMA_VERSION,
             "content_signature_version": CONTENT_SIGNATURE_VERSION,
-            "tool": "dataseg",
+            "tool": "moiraiseg",
             "project_id": project_id,
             "raw_data_dir": str(raw_root),
             "output_dir": str(output_root),

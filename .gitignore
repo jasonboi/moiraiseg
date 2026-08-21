@@ -1,8 +1,8 @@
-# Local DataSeg configuration and runtime state
+# Local MoiraiSeg configuration and runtime state
 /config.json
 /logs/
 /runtime/
-**/.dataseg/
+**/.moiraiseg/
 
 # Local datasets and exported annotations
 /data/
@@ -23,7 +23,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
-/tests/
 .mypy_cache/
 .ruff_cache/
 .coverage

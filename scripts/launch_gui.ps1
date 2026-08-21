@@ -6,8 +6,8 @@ $ErrorActionPreference = "Stop"
 
 $toolRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $toolRoot "config.json"
-$guiPath = Join-Path $toolRoot "dataseg_gui.py"
-$defaultCondaEnvironment = "usdia-seg"
+$guiPath = Join-Path $toolRoot "moiraiseg_gui.py"
+$defaultCondaEnvironment = "moiraiseg"
 
 function Resolve-PythonInterpreter {
     param([string]$Candidate)
@@ -102,7 +102,7 @@ function Resolve-CondaInterpreter {
 }
 
 if (-not (Test-Path -LiteralPath $guiPath -PathType Leaf)) {
-    throw "缺少 dataseg_gui.py"
+    throw "缺少 moiraiseg_gui.py"
 }
 
 $config = $null
@@ -123,14 +123,10 @@ if ($config -and [string]$config.python_executable) {
 }
 
 if (-not $pythonPath) {
-    $environmentName = $defaultCondaEnvironment
-    if ($config -and [string]$config.conda_env) {
-        $environmentName = [string]$config.conda_env
-    }
     $condaCommand = Find-CondaCommand
     $pythonPath = Resolve-CondaInterpreter `
         -CondaCommand $condaCommand `
-        -EnvironmentName $environmentName
+        -EnvironmentName $defaultCondaEnvironment
 }
 
 if (-not $pythonPath) {
@@ -158,8 +154,8 @@ if (-not $pythonPath) {
 
 if (-not $pythonPath) {
     throw (
-        "找不到可用的 Python。请创建并激活 usdia-seg Conda 环境，" +
-        "或创建项目 .venv 后运行 python dataseg_gui.py。"
+        "找不到可用的 Python。请创建并激活 moiraiseg Conda 环境，" +
+        "或创建项目 .venv 后运行 python moiraiseg_gui.py。"
     )
 }
 

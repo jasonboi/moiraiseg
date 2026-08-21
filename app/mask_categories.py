@@ -22,7 +22,7 @@ WINDOWS_RESERVED_NAMES = frozenset(
         *(f"lpt{number}" for number in range(1, 10)),
     }
 )
-ARCHIVE_ROOT_PARTS = (".dataseg", "mask_archive")
+ARCHIVE_ROOT_PARTS = (".moiraiseg", "mask_archive")
 
 
 def _required_string(value: object, field_name: str) -> str:
@@ -88,7 +88,7 @@ def _validated_archive_path(value: object, archive_id: str) -> str:
     if path.parts[:2] != ARCHIVE_ROOT_PARTS or path.parts[2] != archive_id:
         raise RuntimeError(
             "Archived Mask category archive_path must be "
-            ".dataseg/mask_archive/<archive_id>"
+            ".moiraiseg/mask_archive/<archive_id>"
         )
     return path.as_posix()
 
@@ -212,14 +212,14 @@ class MaskCategoryCatalog:
         if project is None:
             return cls(active=(), archived=())
         if not isinstance(project, Mapping):
-            raise RuntimeError("DataSeg project metadata must be an object")
+            raise RuntimeError("MoiraiSeg project metadata must be an object")
 
         schema_version = project.get("schema_version")
         if schema_version == LEGACY_PROJECT_SCHEMA_VERSION:
             vessel_only = project.get("vessel_only", False)
             if not isinstance(vessel_only, bool):
                 raise RuntimeError(
-                    "Legacy DataSeg project vessel_only must be a boolean"
+                    "Legacy MoiraiSeg project vessel_only must be a boolean"
                 )
             active = [
                 MaskCategory("Vessel", "vessel", "#35C8D7"),
@@ -229,17 +229,17 @@ class MaskCategoryCatalog:
             return cls(active=tuple(active), archived=())
         if schema_version != PROJECT_SCHEMA_VERSION:
             raise RuntimeError(
-                "The selected output folder uses an unsupported DataSeg "
+                "The selected output folder uses an unsupported MoiraiSeg "
                 "project version. Choose an empty output folder."
             )
 
         active_value = project.get("mask_categories")
         archived_value = project.get("archived_mask_categories")
         if not isinstance(active_value, list):
-            raise RuntimeError("DataSeg project mask_categories must be a list")
+            raise RuntimeError("MoiraiSeg project mask_categories must be a list")
         if not isinstance(archived_value, list):
             raise RuntimeError(
-                "DataSeg project archived_mask_categories must be a list"
+                "MoiraiSeg project archived_mask_categories must be a list"
             )
         active = tuple(MaskCategory.from_value(value) for value in active_value)
         archived = tuple(
@@ -285,7 +285,7 @@ class MaskCategoryCatalog:
     def _validate_active(categories: tuple[MaskCategory, ...]) -> None:
         if len(categories) > MAX_ACTIVE_CATEGORIES:
             raise RuntimeError(
-                f"DataSeg projects support at most {MAX_ACTIVE_CATEGORIES} "
+                f"MoiraiSeg projects support at most {MAX_ACTIVE_CATEGORIES} "
                 "active Mask categories"
             )
         fields = {
@@ -497,7 +497,7 @@ class MaskCategoryCatalog:
 
     def write_to(self, project: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(project, Mapping):
-            raise RuntimeError("DataSeg project metadata must be an object")
+            raise RuntimeError("MoiraiSeg project metadata must be an object")
         self._validate()
         upgraded = dict(project)
         upgraded["schema_version"] = PROJECT_SCHEMA_VERSION

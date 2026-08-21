@@ -56,7 +56,7 @@ def download(*, force: bool = False) -> Path:
     temporary.unlink(missing_ok=True)
     request = urllib.request.Request(
         MODEL_URL,
-        headers={"User-Agent": "DataSeg model downloader"},
+        headers={"User-Agent": "MoiraiSeg model downloader"},
     )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
@@ -87,7 +87,7 @@ def download(*, force: bool = False) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Download the SAM2.1 Hiera Tiny checkpoint used by DataSeg."
+        description="Download the SAM2.1 Hiera Tiny checkpoint used by MoiraiSeg."
     )
     parser.add_argument(
         "--force",

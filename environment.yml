@@ -1,4 +1,4 @@
-name: usdia-seg
+name: moiraiseg
 channels:
   - conda-forge
 dependencies:

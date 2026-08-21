@@ -21,7 +21,7 @@ from tkinter import filedialog, messagebox, ttk
 
 TOOL_ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = TOOL_ROOT / "config.json"
-CLI_PATH = TOOL_ROOT / "dataseg.py"
+CLI_PATH = TOOL_ROOT / "moiraiseg.py"
 DEFAULT_CONFIG = {
     "schema_version": 1,
     "raw_data_dir": "",
@@ -34,8 +34,8 @@ DEFAULT_CONFIG = {
 }
 GUI_ENGLISH = {
     "English": "中文",
-    "DataSeg 启动器": "DataSeg Launcher",
-    "超声连续帧数据标定启动器": "Ultrasound Sequence Annotation Launcher",
+    "MoiraiSeg 启动器": "MoiraiSeg Launcher",
+    "二维影像序列分割启动器": "2D Image Sequence Segmentation Launcher",
     "在这里配置项目并管理本地服务，标定操作仍在浏览器中完成。": (
         "Configure the project and local service here. Annotation opens "
         "in your browser."
@@ -66,7 +66,7 @@ GUI_ENGLISH = {
     "当前已有任务正在执行。": "Another task is already running.",
     "操作完成": "Operation completed",
     "操作失败": "Operation failed",
-    "DataSeg 操作失败": "DataSeg operation failed",
+    "MoiraiSeg 操作失败": "MoiraiSeg operation failed",
     "配置无效": "Invalid settings",
     "准备数据并启动": "Prepare data and start",
     "端口无效": "Invalid port",
@@ -75,9 +75,9 @@ GUI_ENGLISH = {
     "运行中 · 其他输出": "Running · different output",
     "已停止": "Stopped",
     "请等待当前操作完成。": "Wait for the current operation to finish.",
-    "退出 DataSeg 启动器": "Exit DataSeg Launcher",
-    "DataSeg 服务仍在运行。\n\n选择“是”关闭服务并退出。\n选择“否”保留服务并退出。": (
-        "The DataSeg service is still running.\n\n"
+    "退出 MoiraiSeg 启动器": "Exit MoiraiSeg Launcher",
+    "MoiraiSeg 服务仍在运行。\n\n选择“是”关闭服务并退出。\n选择“否”保留服务并退出。": (
+        "The MoiraiSeg service is still running.\n\n"
         "Choose Yes to stop the service and exit.\n"
         "Choose No to leave the service running and exit."
     ),
@@ -304,7 +304,7 @@ def health(port: int, timeout: float = 0.5) -> dict | None:
             timeout=timeout,
         ) as response:
             payload = json.loads(response.read().decode("utf-8"))
-            return payload if payload.get("tool") == "dataseg" else None
+            return payload if payload.get("tool") == "moiraiseg" else None
     except (OSError, ValueError, urllib.error.URLError):
         return None
 
@@ -331,7 +331,7 @@ def same_path(left: str, right: str) -> bool:
         return False
 
 
-class DataSegGui:
+class MoiraiSegGui:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.language = "zh-CN"
@@ -357,7 +357,7 @@ class DataSegGui:
         self._schedule_status_refresh(250)
 
     def _configure_window(self) -> None:
-        self.root.title(self.tr("DataSeg 启动器"))
+        self.root.title(self.tr("MoiraiSeg 启动器"))
         self.root.geometry("980x780")
         self.root.minsize(860, 700)
         self.root.configure(background=UI_COLORS["canvas"])
@@ -628,14 +628,14 @@ class DataSegGui:
 
         tk.Label(
             header,
-            text="DataSeg",
+            text="MoiraiSeg",
             background=UI_COLORS["canvas"],
             foreground=UI_COLORS["accent"],
             font=(UI_FONT_FAMILY, 12, "bold"),
         ).pack(anchor="w", padx=28, pady=(18, 0))
         tk.Label(
             header,
-            text="超声连续帧数据标定启动器",
+            text="二维影像序列分割启动器",
             background=UI_COLORS["canvas"],
             foreground=UI_COLORS["ink"],
             font=(UI_FONT_FAMILY, 19, "bold"),
@@ -955,17 +955,17 @@ class DataSegGui:
                 if "text" in widget.keys():
                     original = getattr(
                         widget,
-                        "_dataseg_zh_text",
+                        "_moiraiseg_zh_text",
                         str(widget.cget("text")),
                     )
-                    setattr(widget, "_dataseg_zh_text", original)
+                    setattr(widget, "_moiraiseg_zh_text", original)
                     widget.configure(text=self.tr(original))
             except tk.TclError:
                 pass
             for child in widget.winfo_children():
                 visit(child)
 
-        self.root.title(self.tr("DataSeg 启动器"))
+        self.root.title(self.tr("MoiraiSeg 启动器"))
         visit(self.root)
 
     def toggle_language(self) -> None:
@@ -1073,7 +1073,7 @@ class DataSegGui:
     ) -> None:
         if self.busy:
             messagebox.showinfo(
-                "DataSeg",
+                "MoiraiSeg",
                 self.tr("当前已有任务正在执行。"),
             )
             return
@@ -1128,7 +1128,7 @@ class DataSegGui:
             return
         self.append_log(self.tr("操作失败"), tag="error")
         messagebox.showerror(
-            self.tr("DataSeg 操作失败"),
+            self.tr("MoiraiSeg 操作失败"),
             self.tr(error_message),
         )
 
@@ -1202,7 +1202,7 @@ class DataSegGui:
         if not response:
             if not silent:
                 messagebox.showinfo(
-                    "DataSeg",
+                    "MoiraiSeg",
                     self.tr("服务尚未启动。"),
                 )
             return
@@ -1258,7 +1258,7 @@ class DataSegGui:
     def on_close(self) -> None:
         if self.busy:
             messagebox.showinfo(
-                "DataSeg",
+                "MoiraiSeg",
                 self.tr("请等待当前操作完成。"),
             )
             return
@@ -1268,9 +1268,9 @@ class DataSegGui:
             self.root.destroy()
             return
         choice = messagebox.askyesnocancel(
-            self.tr("退出 DataSeg 启动器"),
+            self.tr("退出 MoiraiSeg 启动器"),
             self.tr(
-                "DataSeg 服务仍在运行。\n\n"
+                "MoiraiSeg 服务仍在运行。\n\n"
                 "选择“是”关闭服务并退出。\n"
                 "选择“否”保留服务并退出。"
             ),
@@ -1292,7 +1292,7 @@ def show_startup_error(message: str) -> None:
             ctypes.windll.user32.MessageBoxW(
                 0,
                 message,
-                "DataSeg 启动失败",
+                "MoiraiSeg 启动失败",
                 0x10,
             )
             return
@@ -1302,7 +1302,7 @@ def show_startup_error(message: str) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="DataSeg 桌面启动器")
+    parser = argparse.ArgumentParser(description="MoiraiSeg 桌面启动器")
     parser.add_argument(
         "--smoke-test",
         action="store_true",
@@ -1317,7 +1317,7 @@ def main() -> int:
     root: tk.Tk | None = None
     try:
         root = tk.Tk()
-        app = DataSegGui(root)
+        app = MoiraiSegGui(root)
     except Exception as error:
         if root is not None:
             try:
@@ -1327,7 +1327,7 @@ def main() -> int:
         startup_message = (
             "无法启动 Python 图形界面。\n\n"
             f"{error}\n\n"
-            "请在启动 DataSeg 的 Python 环境安装或修复 Tcl/Tk：\n"
+            "请在启动 MoiraiSeg 的 Python 环境安装或修复 Tcl/Tk：\n"
             "Conda: conda install -c conda-forge --force-reinstall tk\n"
             ".venv: 请安装包含 Tcl/Tk 的 Python 后重新创建虚拟环境"
         )
@@ -1368,7 +1368,7 @@ def main() -> int:
                 f"Log font is too small: {log_font_size}"
             )
         root.destroy()
-        print("DataSeg GUI smoke test passed")
+        print("MoiraiSeg GUI smoke test passed")
         return 0
     root.mainloop()
     return 0

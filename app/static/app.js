@@ -11,7 +11,7 @@ const MASK_CATEGORY_COLOR_CANDIDATES = Object.freeze([
   "#CC79A7",
   "#E69F00",
 ]);
-const LANGUAGE_STORAGE_KEY = "dataseg-language";
+const LANGUAGE_STORAGE_KEY = "moiraiseg-language";
 const ENGLISH_TEXT = {
   "English": "中文",
   "切换为英文": "Switch to Chinese",
@@ -183,7 +183,7 @@ const ENGLISH_TEXT = {
   "正在准备审核数据": "Preparing review data",
   "读取原图、预识别 Mask 和审核进度…": "Loading source images, candidate Masks, and review progress…",
   "无法读取审核清单": "Could not load the review manifest.",
-  "浏览器页面属于另一个标定项目，请从 DataSeg 启动器重新打开。": "This page belongs to a different annotation project. Reopen it from the DataSeg launcher.",
+  "浏览器页面属于另一个标定项目，请从 MoiraiSeg 启动器重新打开。": "This page belongs to a different annotation project. Reopen it from the MoiraiSeg launcher.",
   "审核工具启动失败": "Review tool failed to start",
 };
 const originalText = new WeakMap();
@@ -408,8 +408,8 @@ languageObserver.observe(app, {
 function applyLanguage() {
   document.documentElement.lang = state.language === "en" ? "en" : "zh-CN";
   document.title = state.language === "en"
-    ? "DataSeg Mask Annotation"
-    : "DataSeg Mask 标定";
+    ? "MoiraiSeg Mask Annotation"
+    : "MoiraiSeg Mask 标定";
   if (state.language === "en") {
     translateTree(app);
   } else {
@@ -427,7 +427,7 @@ function toggleLanguage() {
 function projectHeaders() {
   return {
     "Content-Type": "application/json",
-    "X-DataSeg-Project": state.manifest?.project_id || "",
+    "X-MoiraiSeg-Project": state.manifest?.project_id || "",
   };
 }
 
@@ -3697,7 +3697,7 @@ async function init() {
       requestedProject !== manifest.project_id
     ) {
       throw new Error(
-        "浏览器页面属于另一个标定项目，请从 DataSeg 启动器重新打开。",
+        "浏览器页面属于另一个标定项目，请从 MoiraiSeg 启动器重新打开。",
       );
     }
     state.manifest = manifest;

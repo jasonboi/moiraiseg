@@ -142,7 +142,7 @@ class ReviewerStore:
         self.dataset_root = dataset_root.resolve()
         self.prepared_root = prepared_root.resolve()
         self.candidate_root = candidate_root.resolve()
-        self.internal_root = self.dataset_root / ".dataseg"
+        self.internal_root = self.dataset_root / ".moiraiseg"
         self.mask_archive_root = self.internal_root / "mask_archive"
         self.project_path = self.internal_root / "project.json"
         self.project = self._load_project()
@@ -296,16 +296,16 @@ class ReviewerStore:
     def _load_project(self) -> dict:
         if not self.project_path.is_file():
             raise RuntimeError(
-                f"DataSeg project metadata is missing: {self.project_path}"
+                f"MoiraiSeg project metadata is missing: {self.project_path}"
             )
         project = json.loads(self.project_path.read_text(encoding="utf-8"))
         categories = MaskCategoryCatalog.from_project(project)
-        if project.get("tool") != "dataseg":
-            raise RuntimeError("The output folder is not a DataSeg project")
+        if project.get("tool") != "moiraiseg":
+            raise RuntimeError("The output folder is not a MoiraiSeg project")
         if not str(project.get("project_id", "")).strip():
-            raise RuntimeError("DataSeg project metadata is missing project_id")
+            raise RuntimeError("MoiraiSeg project metadata is missing project_id")
         if not str(project.get("raw_data_dir", "")).strip():
-            raise RuntimeError("DataSeg project metadata is missing raw_data_dir")
+            raise RuntimeError("MoiraiSeg project metadata is missing raw_data_dir")
         upgraded = categories.write_to(project)
         if upgraded != project:
             atomic_write_json(self.project_path, upgraded)
@@ -350,7 +350,7 @@ class ReviewerStore:
                 )
             if state.get("project_id") != self.project_id:
                 raise RuntimeError(
-                    "Reviewer state belongs to a different DataSeg project"
+                    "Reviewer state belongs to a different MoiraiSeg project"
                 )
             state.setdefault("reviewed", {})
             return state
@@ -585,7 +585,7 @@ class ReviewerStore:
     def _archive_storage_path(self, archive_path: str) -> Path:
         """Resolve a validated project archive path without allowing escape."""
         parts = archive_path.split("/")
-        if len(parts) != 3 or parts[:2] != [".dataseg", "mask_archive"]:
+        if len(parts) != 3 or parts[:2] != [".moiraiseg", "mask_archive"]:
             raise ValueError("Mask category archive metadata is invalid")
         archive_root = self.mask_archive_root.resolve()
         candidate = (self.dataset_root / Path(*parts)).resolve()
@@ -1245,7 +1245,7 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                 self._send_json(
                     {
                         "ok": True,
-                        "tool": "dataseg",
+                        "tool": "moiraiseg",
                         "instance_id": self.instance_id,
                         "project_id": self.store.project_id,
                         "raw_data_dir": self.store.raw_data_dir,
@@ -1318,7 +1318,7 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     daemon=True,
                 ).start()
                 return
-            received_project = self.headers.get("X-DataSeg-Project", "")
+            received_project = self.headers.get("X-MoiraiSeg-Project", "")
             if (
                 not received_project
                 or not hmac.compare_digest(
@@ -1330,7 +1330,7 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     {
                         "error": (
                             "浏览器页面属于另一个标定项目，"
-                            "请从 DataSeg 启动器重新打开。"
+                            "请从 MoiraiSeg 启动器重新打开。"
                         )
                     },
                     HTTPStatus.CONFLICT,
@@ -1441,7 +1441,7 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         parts = [part for part in parsed.path.split("/") if part]
         try:
-            received_project = self.headers.get("X-DataSeg-Project", "")
+            received_project = self.headers.get("X-MoiraiSeg-Project", "")
             if (
                 not received_project
                 or not hmac.compare_digest(
@@ -1453,7 +1453,7 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     {
                         "error": (
                             "浏览器页面属于另一个标定项目，"
-                            "请从 DataSeg 启动器重新打开。"
+                            "请从 MoiraiSeg 启动器重新打开。"
                         )
                     },
                     HTTPStatus.CONFLICT,
@@ -1487,7 +1487,7 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         parts = [part for part in parsed.path.split("/") if part]
         try:
-            received_project = self.headers.get("X-DataSeg-Project", "")
+            received_project = self.headers.get("X-MoiraiSeg-Project", "")
             if (
                 not received_project
                 or not hmac.compare_digest(
@@ -1499,7 +1499,7 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                     {
                         "error": (
                             "浏览器页面属于另一个标定项目，"
-                            "请从 DataSeg 启动器重新打开。"
+                            "请从 MoiraiSeg 启动器重新打开。"
                         )
                     },
                     HTTPStatus.CONFLICT,

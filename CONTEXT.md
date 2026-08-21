@@ -1,6 +1,6 @@
-# DataSeg Annotation
+# MoiraiSeg Annotation
 
-DataSeg turns ultrasound frame sequences into reviewed image and Mask datasets.
+MoiraiSeg turns ordered 2D image sequences into reviewed image and Mask datasets.
 
 ## Language
 

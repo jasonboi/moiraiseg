@@ -97,7 +97,7 @@ def service_matches_config(
     response: dict[str, Any],
     config: dict[str, Any],
 ) -> bool:
-    if response.get("tool") != "dataseg":
+    if response.get("tool") != "moiraiseg":
         return False
     try:
         if normalized_path(response["raw_data_dir"]) != normalized_path(
@@ -121,7 +121,7 @@ def service_matches_config(
 
     project_path = (
         Path(config["output_dir"]).expanduser().resolve()
-        / ".dataseg"
+        / ".moiraiseg"
         / "project.json"
     )
     if project_path.is_file():
@@ -245,7 +245,7 @@ def doctor(*, quiet: bool = False) -> bool:
         for notice in notices:
             print(f"- 警告：{notice}", file=sys.stderr)
         print(
-            "\n请激活要运行 DataSeg 的 Python 环境，然后在项目目录中运行："
+            "\n请激活要运行 MoiraiSeg 的 Python 环境，然后在项目目录中运行："
             "\n  python -m pip install -r requirements.txt",
             file=sys.stderr,
         )
@@ -253,7 +253,7 @@ def doctor(*, quiet: bool = False) -> bool:
     if not quiet:
         for notice in notices:
             print(f"\n环境警告：{notice}", file=sys.stderr)
-        print("\nDataSeg 环境检查通过。")
+        print("\nMoiraiSeg 环境检查通过。")
     return True
 
 
@@ -396,19 +396,19 @@ def start(args: argparse.Namespace) -> None:
     require_configured(config)
     port = int(config.get("port", 8767))
     current = health(port)
-    if current and current.get("tool") == "dataseg":
+    if current and current.get("tool") == "moiraiseg":
         if service_matches_config(current, config):
             url = browser_url(port, current)
             if not args.no_open:
                 webbrowser.open(url)
-            print(f"DataSeg 已经在运行：{url}")
+            print(f"MoiraiSeg 已经在运行：{url}")
             return
         if not STATE_PATH.is_file():
             raise RuntimeError(
-                "端口上的 DataSeg 服务绑定了另一个输入或输出项目，"
+                "端口上的 MoiraiSeg 服务绑定了另一个输入或输出项目，"
                 "但缺少可验证的启动记录。请先关闭旧服务。"
             )
-        print("检测到另一个 DataSeg 项目，正在关闭旧服务并切换……")
+        print("检测到另一个 MoiraiSeg 项目，正在关闭旧服务并切换……")
         stop(argparse.Namespace(force=False))
         if port_is_open(port):
             raise RuntimeError(f"旧服务未释放端口 {port}")
@@ -423,8 +423,8 @@ def start(args: argparse.Namespace) -> None:
     instance_id = uuid.uuid4().hex
     shutdown_token = uuid.uuid4().hex
     environment = os.environ.copy()
-    environment["DATASEG_INSTANCE_ID"] = instance_id
-    environment["DATASEG_SHUTDOWN_TOKEN"] = shutdown_token
+    environment["MOIRAISEG_INSTANCE_ID"] = instance_id
+    environment["MOIRAISEG_SHUTDOWN_TOKEN"] = shutdown_token
     popen_kwargs: dict[str, Any] = {
         "cwd": TOOL_ROOT,
         "env": environment,
@@ -455,7 +455,7 @@ def start(args: argparse.Namespace) -> None:
         response = health(port)
         if (
             response
-            and response.get("tool") == "dataseg"
+            and response.get("tool") == "moiraiseg"
             and response.get("instance_id") == instance_id
         ):
             ready_response = response
@@ -469,7 +469,7 @@ def start(args: argparse.Namespace) -> None:
             if stderr_path.exists()
             else ""
         )
-        raise RuntimeError(f"DataSeg 启动失败。\n{details[-4000:]}")
+        raise RuntimeError(f"MoiraiSeg 启动失败。\n{details[-4000:]}")
 
     atomic_write_json(
         STATE_PATH,
@@ -490,8 +490,8 @@ def start(args: argparse.Namespace) -> None:
     url = browser_url(port, ready_response)
     if not args.no_open:
         webbrowser.open(url)
-    print(f"DataSeg 已启动：{url}")
-    print("关闭时运行：python dataseg.py stop")
+    print(f"MoiraiSeg 已启动：{url}")
+    print("关闭时运行：python moiraiseg.py stop")
 
 
 def process_exists(pid: int) -> bool:
@@ -517,7 +517,7 @@ def process_exists(pid: int) -> bool:
 
 def stop(args: argparse.Namespace) -> None:
     if not STATE_PATH.is_file():
-        print("DataSeg 当前没有 Python CLI 启动记录。")
+        print("MoiraiSeg 当前没有 Python CLI 启动记录。")
         return
     state = read_json(STATE_PATH)
     pid = int(state["process_id"])
@@ -528,15 +528,15 @@ def stop(args: argparse.Namespace) -> None:
     if not response:
         if not process_exists(pid):
             STATE_PATH.unlink(missing_ok=True)
-            print("DataSeg 进程已经结束，运行记录已清理。")
+            print("MoiraiSeg 进程已经结束，运行记录已清理。")
             return
         if not args.force:
             raise RuntimeError(
                 "服务没有响应，但记录中的进程仍存在。"
-                "确认后可运行 python dataseg.py stop --force"
+                "确认后可运行 python moiraiseg.py stop --force"
             )
     elif (
-        response.get("tool") != "dataseg"
+        response.get("tool") != "moiraiseg"
         or response.get("instance_id") != expected_instance
     ):
         raise RuntimeError("端口上的服务与启动记录不匹配，拒绝关闭")
@@ -559,15 +559,15 @@ def stop(args: argparse.Namespace) -> None:
             break
         time.sleep(0.1)
     STATE_PATH.unlink(missing_ok=True)
-    print("DataSeg 已关闭。")
+    print("MoiraiSeg 已关闭。")
 
 
 def status() -> None:
     config = load_config()
     port = int(config.get("port", 8767))
     response = health(port)
-    if response and response.get("tool") == "dataseg":
-        print(f"DataSeg 正在运行：http://127.0.0.1:{port}/")
+    if response and response.get("tool") == "moiraiseg":
+        print(f"MoiraiSeg 正在运行：http://127.0.0.1:{port}/")
         print(f"项目输出：{response.get('output_dir', '未知')}")
         print(
             "SAM2 传播范围："
@@ -575,12 +575,12 @@ def status() -> None:
             f"后 {response.get('sam2_after_frames')} 帧"
         )
     else:
-        print("DataSeg 当前没有运行。")
+        print("MoiraiSeg 当前没有运行。")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="DataSeg 多类别 Mask 数据标定工具",
+        description="MoiraiSeg 二维影像序列分割工作台",
     )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("doctor", help="检查 Python、依赖、SAM2 和模型")
@@ -619,7 +619,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def interactive_menu(parser: argparse.ArgumentParser) -> argparse.Namespace:
-    print("DataSeg 多类别 Mask 数据标定工具")
+    print("MoiraiSeg 二维影像序列分割工作台")
     print("1. 启动")
     print("2. 配置")
     print("3. 检查环境")
@@ -669,5 +669,5 @@ if __name__ == "__main__":
         print("\n已取消。", file=sys.stderr)
         raise SystemExit(130)
     except Exception as error:
-        print(f"DataSeg 错误：{error}", file=sys.stderr)
+        print(f"MoiraiSeg 错误：{error}", file=sys.stderr)
         raise SystemExit(1)

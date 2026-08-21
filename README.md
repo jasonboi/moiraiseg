@@ -1,388 +1,232 @@
-# DataSeg
+# MoiraiSeg
 
 [中文](README.md) | [English](README.en.md)
 
-DataSeg 是一个面向超声连续帧的本地数据标定工具，用于制作和审核自定义 Mask。它提供 Python Tk 桌面启动器和浏览器标定界面，并使用 SAM2.1 从人工关键帧向前、向后传播 Mask。
+MoiraiSeg 是一个面向二维影像帧序列的本地优先、持续开源分割工作台。它把人工勾画、SAM2.1 双向传播、逐帧审核和数据集导出放在同一条流程中，帮助团队制作可追溯的二值 Mask 数据集。
 
-项目默认使用中文。Tk 启动器和网页右上角都可以点击 `English` 切换英文，网页会在当前浏览器中记住语言选择。
+> 项目处于早期开发阶段。处理医学影像时，它仅用于研究和数据标注，不用于临床诊断、治疗决策或医疗器械用途。
 
-## 功能
+## 适用范围
 
-- 套索、画笔和橡皮擦编辑自定义 Mask
-- 单帧保存、SAM2 传播审核和放大微调
-- SAM2.1 关键帧双向传播
-- 在浏览器中从 0 开始随时管理最多 5 种 Mask 类别
-- 自动选择 CUDA 或 CPU
-- 按输出目录隔离项目、审核进度与写入权限
-- 基于文件内容哈希的跨设备审核续接
-- Tk 桌面启动器、Windows 双击入口和命令行入口
-- 中文与英文界面
+MoiraiSeg 适合这些工作：
 
-DataSeg 只监听 `127.0.0.1`。原始图像保持只读。保存帧和确认类别管理操作时，DataSeg 只写入输出目录。添加类别时，DataSeg 会立即为已经审核的帧补充空 Mask。
+- 标注由二维图像组成的连续帧或有序切片序列
+- 处理超声、内镜、显微、遥感和工业检测等已经转换为 PNG 帧的影像
+- 为目标物、缺陷、器官边界或其他研究对象建立最多 5 个独立 Mask 类别
+- 用少量人工关键帧带动前后帧标注，再逐帧确认或修正
+- 在本机处理敏感影像，原始图像始终只读
+- 导出训练前可继续整理的图像、二值 PNG Mask 和清单文件
+- 把完整输出项目复制到另一台电脑后继续审核
 
-## 系统要求
+当前版本没有覆盖这些场景：
 
-- Windows、Linux 或 macOS
-- Conda、Miniforge、Miniconda 或 Anaconda，推荐
-- Python 自带的 `venv` 或兼容虚拟环境，可选
-- Python 3.11
-- Tcl/Tk，仅桌面启动器需要
-- 支持 CUDA 的 NVIDIA GPU，可选
-- 约 160 MB 磁盘空间用于 SAM2.1 Hiera Tiny 权重
+- DICOM、NIfTI、MP4、AVI 或设备私有格式的直接导入
+- 原生三维体数据、四维影像、多光谱数据或多平面同步标注
+- 多人同时编辑、远程协作和权限管理
+- 模型训练、自动评估或临床推理
+- 自动生成 train、validation 和 test 划分
 
-CPU 可以运行 SAM2，传播速度会明显慢于 CUDA。
+## 当前能力
 
-## 安装
+- 套索、画笔和橡皮擦编辑
+- SAM2.1 Hiera Tiny 关键帧双向传播
+- 单帧保存、传播批次筛选和放大微调
+- 0 到 5 个自定义 Mask 类别，支持归档和恢复
+- CUDA 与 CPU 自动选择
+- 中文和英文界面
+- Tk 桌面启动器、浏览器界面和命令行入口
+- 基于内容哈希的跨设备项目识别
+- 本机回环服务，只监听 `127.0.0.1`
 
-### 1. 克隆仓库
+## 标注流程
+
+1. 把每个采集片段整理为 `frames/` 目录下的一组 PNG。
+2. 选择原始数据目录和单独的输出目录。
+3. 在浏览器中创建 Mask 类别并勾画关键帧。
+4. 用 SAM2.1 向前、向后传播，取消边界不准的帧并微调。
+5. 保存审核结果，使用导出的清单进入训练前清洗，并按独立数据来源划分数据集。
+
+画面内容突变、视角切换、目标明显变形或目标离开画面时，应停止当前传播批次，重新选择关键帧。
+
+## 快速开始
+
+### 1. 获取代码
 
 ```bash
-git clone https://github.com/jasonboi/DataSeg.git
-cd DataSeg
+git clone https://github.com/jasonboi/moiraiseg.git
+cd moiraiseg
 ```
 
-仓库包含 DataSeg 和运行所需的精简版 SAM2 源码。模型权重不放进 Git，安装时由官方地址下载。
+### 2. 创建环境
 
-### 2. 创建 Conda 环境（推荐）
+推荐 Python 3.11 和 Conda：
 
 ```bash
 conda env create -f environment.yml
-conda activate usdia-seg
+conda activate moiraiseg
 python -m pip install -r requirements.txt
 ```
 
-`environment.yml` 默认创建 `usdia-seg`。已有同名环境时，可以直接激活后安装依赖。
-
-如果需要指定其他环境名：
+也可以使用 `venv`：
 
 ```bash
-conda env create -f environment.yml -n my-dataseg
-conda activate my-dataseg
-python -m pip install -r requirements.txt
+python -m venv .venv
 ```
 
-需要 NVIDIA GPU 加速时，先根据目标电脑的 CUDA 情况按照 [PyTorch 官方安装说明](https://pytorch.org/get-started/locally/)安装 PyTorch 和 TorchVision，再安装其余依赖。
-
-也可以使用 Python 3.11 自带的 `venv`。Windows 示例：
+Windows：
 
 ```bat
-py -3.11 -m venv .venv
 .venv\Scripts\activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Linux 或 macOS 示例：
+Linux 或 macOS：
 
 ```bash
-python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-`venv` 复用创建它的 Python 所带的 Tcl/Tk。Windows 和 macOS 建议使用包含 Tcl/Tk 的 Python 3.11 安装包。Debian 或 Ubuntu 需要先安装对应的 `python3-tk` 系统包。可以运行 `python -m tkinter` 检查 Tk，再继续下载模型和检查环境。
+桌面启动器需要 Tcl/Tk。只使用命令行和浏览器服务时不需要 Tk 界面。
 
-### 3. 下载 SAM2 模型
+需要 NVIDIA GPU 加速时，请按 [PyTorch 官方说明](https://pytorch.org/get-started/locally/)安装与本机 CUDA 匹配的 PyTorch 和 TorchVision。
+
+### 3. 下载模型并检查环境
 
 ```bash
 python scripts/download_model.py
+python moiraiseg.py doctor
 ```
 
-脚本从 Meta 官方地址下载 `sam2.1_hiera_tiny.pt`，校验 SHA-256，然后保存到：
+模型脚本从 Meta 官方地址下载 `sam2.1_hiera_tiny.pt`，校验 SHA-256 后保存到 `sam2/checkpoints/`。模型文件约占 160 MB，不提交到 Git。
 
-```text
-sam2/checkpoints/sam2.1_hiera_tiny.pt
-```
+### 4. 启动
 
-文件已经存在且校验通过时，脚本不会重复下载。需要替换损坏文件时运行：
+桌面启动器：
 
 ```bash
-python scripts/download_model.py --force
+python moiraiseg_gui.py
 ```
 
-### 4. 检查环境
+Windows 完成首次配置后也可以双击 `MoiraiSeg启动器.cmd`。
+
+命令行：
 
 ```bash
-python dataseg.py doctor
-```
-
-检查内容包括 Python、Pillow、NumPy、PyTorch、TorchVision、Tcl/Tk、SAM2 源码和模型权重。
-
-## 启动方式
-
-### Python 桌面启动器
-
-```bash
-conda activate usdia-seg
-python dataseg_gui.py
-```
-
-在启动器中：
-
-1. 选择待处理原始数据目录。
-2. 选择处理后数据目录。
-3. 设置 SAM2 向前和向后传播帧数。
-4. 选择运行设备。Mask 类别在浏览器标定页中管理。
-5. 点击“保存并启动”。
-6. 浏览器会打开标定页面。
-
-右上角的 `English` 和 `中文` 按钮用于切换界面语言。Tk 启动器每次打开时默认使用中文。
-
-DataSeg 始终使用启动 `dataseg_gui.py` 的 Python 解释器执行环境检查、数据准备和本地服务。最右侧的只读“当前环境”会显示 `Conda · 环境名`、`venv · 目录名` 或解释器完整路径。使用 `.venv` 时先激活它，再运行同一条启动命令：
-
-```bash
-python dataseg_gui.py
-```
-
-### Windows 双击启动
-
-完成 Conda（推荐）或兼容虚拟环境安装并下载模型后，双击：
-
-```text
-DataSeg启动器.cmd
-```
-
-保存过配置后，快捷入口优先使用 `config.json` 记录的 Python 解释器。没有可用记录时，它依次尝试旧配置指定或默认的 `usdia-seg` Conda 环境、项目内 `.venv`，最后尝试 `PATH` 中的 Python。
-
-第一次使用自定义 Conda 环境、`.venv` 或其他兼容虚拟环境时，先激活该环境，运行 `python dataseg_gui.py` 并保存配置。之后双击入口会继续使用同一个解释器。旧版 `conda_env` 配置仍可读取。
-
-### 命令行
-
-```bash
-python dataseg.py configure
-python dataseg.py start
-python dataseg.py status
-python dataseg.py stop
+python moiraiseg.py configure
+python moiraiseg.py start
+python moiraiseg.py status
+python moiraiseg.py stop
 ```
 
 其他命令：
 
 ```bash
-python dataseg.py doctor
-python dataseg.py prepare
-python dataseg.py start --no-open
-python dataseg.py stop --force
+python moiraiseg.py prepare
+python moiraiseg.py start --no-open
+python moiraiseg.py stop --force
 ```
 
-- `doctor` 检查运行环境。
-- `prepare` 只扫描数据并建立索引。
-- `start --no-open` 启动服务但不自动打开浏览器。
-- `stop --force` 只用于服务无响应且启动记录仍存在的情况。
+## 当前影像加载逻辑
 
-### 非交互配置
+输入可以是单个采集片段，也可以是包含多个片段的批次。
 
-Windows CMD 示例：
+单个片段：
 
-```bat
-python dataseg.py configure ^
-  --raw "D:\ultrasound\20260720" ^
-  --output "D:\ultrasound-reviewed" ^
-  --before 4 ^
-  --after 16 ^
-  --device auto ^
-  --port 8767
+```text
+carotid-long-axis/
+├─ frames/
+│  ├─ frame_000000.png
+│  └─ frame_000001.png
+├─ metadata.csv       # 可选
+└─ preview.mp4        # 保留，但不会读取
 ```
 
-PowerShell、Git Bash、Linux 和 macOS 可以写成一行，或改用对应终端的续行符。
-
-## 本地配置
-
-第一次保存设置后会生成 `config.json`。它包含本机数据路径，因此已经加入 `.gitignore`，不会提交到 GitHub。
-
-安全示例位于 `config.example.json`：
-
-```json
-{
-  "schema_version": 1,
-  "raw_data_dir": "",
-  "output_dir": "",
-  "sam2_before_frames": 4,
-  "sam2_after_frames": 16,
-  "sam2_device": "auto",
-  "python_executable": "",
-  "port": 8767
-}
-```
-
-通过桌面启动器保存时，`python_executable` 会写入当前解释器的绝对路径。示例模板保持为空，避免提交某台电脑的本地路径。旧配置中的 `conda_env` 只用于 Windows 双击入口的兼容回退。
-
-Mask 类别元数据保存在输出项目的 `.dataseg/project.json` 中，不放在本地 `config.json` 中。当前项目元数据使用 `schema_version=3`。旧版 `schema_version=2` 项目首次打开时会原地迁移。`vessel_only=true` 会迁移为单一活动 `vessel` 类别，其他旧项目会迁移为 `vessel` 和 `lesion` 两个活动类别。已有文件夹、Mask 文件和审核进度保持不变，不会移动或重写。
-
-网页服务只绑定本机回环地址。日志写入 `logs/`，运行状态写入 `runtime/`，两者都不会提交。
-
-## Mask 类别管理
-
-Mask 类别只在浏览器标定界面的左栏管理。新项目从 0 个活动类别开始，首次打开时可以点击“添加第一个类别”。没有活动类别时仍可浏览图像和打开归档管理，但绘制、保存和 SAM2 传播不可用。
-
-添加类别时需要设置：
-
-- 显示名称：界面中显示的自定义名称，支持 Unicode。活动类别的显示名称不区分大小写且不能重复。自定义名称在中文和英文界面中都会原样显示。
-- 文件夹名称：输出数据使用的稳定名称，只允许匹配 `[a-z][a-z0-9_-]{0,31}`。活动类别的文件夹名称不能重复，创建后不能修改。
-- 覆盖颜色：通过色板选择 `#RRGGBB` 颜色。活动类别的颜色不能重复，覆盖透明度固定为 44%，确保底下的超声图像仍然可见。
-
-活动列表最多包含 5 个类别，并在左栏内单独滚动。类别顺序对应数字键 `1`–`5`。点击类别会选中并显示它，类别行上的显示开关只控制覆盖层，不会改动 Mask 数据。隐藏当前类别会暂停绘制，重新选择该类别会让它恢复显示并允许继续编辑。
-
-可以在审核中途添加类别。已经审核的帧仍保持已审核状态，DataSeg 会为新类别在这些帧上创建空的二值 PNG，不会推断或复制标定内容。编辑类别只能修改显示名称和颜色，文件夹名称始终保持不变。当前帧有未保存修改时仍可添加或编辑类别。
-
-删除类别前需要确认。DataSeg 会把类别元数据和 Mask 移入当前项目的可恢复归档，允许删除最后一个活动类别。左栏底部的“归档管理”可以恢复原有类别和 Mask，也可以永久删除不再需要的归档。永久删除前必须准确输入归档的文件夹名字，确认后会移除类别记录和归档中的全部 Mask，且无法撤销。添加类别时如果文件夹名称已有归档，必须明确选择恢复旧数据，或保留归档并以当前输入新建空类别。归档、恢复和永久删除前需要先保存或丢弃当前帧的修改。在帧保存、SAM2 传播审核、传播微调或其他类别操作进行期间，类别管理会暂时禁用。
-
-## 输入数据格式
-
-可以选择包含多个采集片段的批次目录：
+批次：
 
 ```text
 20260720/
-├─ 20260720_155631_颈动脉/
-│  ├─ frames/
-│  │  ├─ frame_000000_....png
-│  │  └─ frame_000001_....png
-│  ├─ metadata.csv
-│  └─ preview.mp4
-└─ 20260720_161611_股静脉/
+├─ carotid-long-axis/
+│  └─ frames/
+└─ femoral-vein/
    └─ frames/
 ```
 
-也可以直接选择自身含有 `frames/` 的单个采集片段。DataSeg 读取 `frames/` 中的 PNG。`metadata.csv` 和 `preview.mp4` 可以保留，`metadata.csv` 不是必需文件。
+加载器按以下规则工作：
 
-处理后目录不能与原始目录相同，也不能放在原始目录内部。
+1. 如果所选目录直接包含 `frames/`，它会被视为一个片段。
+2. 否则只扫描所选目录的下一层子目录，并选出含有 `frames/` 的目录。加载器不会递归查找更深层级。
+3. 只使用 `frames/*.png` 模式读取文件。扩展名大小写匹配会跟随操作系统，Windows 与 Linux 可能不同。JPEG、TIFF、DICOM、NIfTI 和视频不会进入索引。
+4. 帧顺序优先使用 `metadata.csv` 中的 `frame` 字段。没有该值时，从文件名里的第一段数字取帧号。仍取不到数字时，使用按文件名排序后的位置。
+5. `metadata.csv` 必须包含 `file` 列，且 `file` 值不能重复。CSV 可以完全省略。
+6. 同一片段中的所有 PNG 必须具有相同宽高，帧号也必须唯一。
+7. 加载器为文件名、文件大小、内容和可选 CSV 计算签名。审核开始后，帧结构或内容变化会阻止项目继续写入。
+8. 浏览器按索引中的绝对源路径按需读取图像。原始目录保持只读，已审核图像和 Mask 写入单独的输出目录。
+
+输出目录不能等于原始目录，也不能位于原始目录内部。
 
 ## 输出结构
 
 ```text
-处理后数据/
+reviewed-data/
 ├─ images/
-│  └─ 采集片段名/
-│     └─ frame_*.png
+│  └─ <片段名>/
 ├─ masks/
-│  └─ <文件夹名称>/        # 每个活动 Mask 类别一个目录
-│     └─ 采集片段名/
-│        └─ frame_*.png
+│  └─ <类别文件夹名>/
+│     └─ <片段名>/
 ├─ annotation_manifest.csv
 ├─ annotation_manifest.jsonl
-└─ .dataseg/
+└─ .moiraiseg/
    ├─ project.json
    ├─ reviewer_state.json
    ├─ annotation_index.json
-   ├─ mask_archive/         # 有归档类别时存在
-   │  └─ <归档 ID>/
-   │     └─ 采集片段名/
-   │        └─ frame_*.png
+   ├─ mask_archive/
    ├─ prepared/
    └─ candidate_labels/
 ```
 
-DataSeg 只在实际添加类别时创建对应的 Mask 目录，不会预先创建 5 个目录。0 个活动类别时，`masks/` 中没有活动类别子目录。每个已审核帧的类别 Mask 都是二值 PNG。
+每个已审核帧会为每个活动类别生成一张二值 PNG。清单会为每个活动类别增加 `<folder-name>_mask` 字段。归档类别不会出现在活动清单中。
 
-`annotation_manifest.csv` 和 `annotation_manifest.jsonl` 会根据活动类别动态生成字段。除图像和审核信息外，每个活动类别会增加一个 `<文件夹名称>_mask` 字段，值为相对于输出项目的 Mask 路径。归档类别不会出现在活动清单中。永久删除归档不会改变活动类别字段。
+完整复制原始目录和输出目录即可在另一台电脑继续审核。必须保留隐藏的 `.moiraiseg/` 目录。路径和文件修改时间可以变化，文件内容、文件名和片段结构必须保持一致。
 
-`.dataseg/project.json` 是活动和归档类别元数据的唯一来源。`.dataseg/reviewer_state.json` 保存审核进度。归档 Mask 保存在 `.dataseg/mask_archive/<归档 ID>`。项目元数据、审核进度和归档数据都跟随整个输出目录。选择新的空目录会创建独立项目，完整复制已有输出目录会保留原项目 ID、审核进度和 Mask 类别。
+## Mask 类别与快捷键
 
-DataSeg 不划分 train、validation 和 test。训练前应按受试者划分，其次按完整采集片段划分。不要随机拆分连续帧，也不要让同一受试者的数据出现在多个集合中。
-
-## 跨设备继续审核
-
-在另一台电脑继续同一个项目时，需要同时复制：
-
-1. 完整的原始数据目录，包括每个片段的 `frames/` 和已有的 `metadata.csv`。
-2. 完整的处理后数据目录，包括隐藏的 `.dataseg/` 目录、`images/` 和 `masks/`。
-
-在新电脑的启动器中选择复制后的原始数据目录和处理后数据目录，然后点击“保存并启动”。DataSeg 会用 SHA-256 校验片段内的 PNG、文件名和 `metadata.csv` 内容。绝对路径和文件修改时间不参与校验，因此盘符、用户名或上级目录不同不会影响识别。
-
-旧版项目第一次迁移时还没有内容哈希。DataSeg 会核对片段与帧索引，并逐张比较所有已审核原图和输出副本。验证通过后，它会写入内容哈希和新设备路径，同时保留项目 ID、审核记录和 Mask。首次迁移需要读取全部原始文件，耗时会比普通启动长。
-
-不要手工修改 `project.json`、`reviewer_state.json` 或项目 ID。原始文件内容、文件名、片段结构或已审核输出不一致时，DataSeg 会停止迁移，避免把进度绑定到错误的数据。
-
-## 标定操作
-
-右侧“当前图像”区域可以直接选择片段和帧。选择片段时会跳到该片段首张待审核帧，选择帧时会直接跳到对应图像。“跳转到下一张未审核”会从当前位置向后查找，并在到达末尾后从头继续查找。当前 Mask 有未保存修改时，离开前仍会要求确认。
+每个类别包含显示名称、稳定的文件夹名称和覆盖颜色。文件夹名称必须匹配 `[a-z][a-z0-9_-]{0,31}`，创建后不能修改。删除类别会先移入项目内归档，永久删除归档需要再次确认。
 
 | 操作 | 快捷键 |
 | --- | --- |
-| 选择第 1 至 5 个 Mask 类别 | `1`–`5` |
-| 套索 | `Q` |
-| 画笔 | `W` |
-| 橡皮擦 | `E` |
+| 选择第 1 至 5 个类别 | `1`–`5` |
+| 套索、画笔、橡皮擦 | `Q`、`W`、`E` |
 | 上一帧、下一帧 | `←`、`→` |
-| 仅保存当前帧 | `S` |
-| 保存并跳到最早未审核帧 | `Enter` |
+| 保存当前帧 | `S` |
+| 保存并跳到下一张未审核帧 | `Enter` |
 | 显示或隐藏 Mask | `M` |
-| 从当前关键帧进行 SAM2 传播 | `P` |
+| 从当前关键帧传播 | `P` |
 | 清空当前帧 Mask | `X` |
 
-SAM2 会传播当前选中的 Mask 类别，其他 Mask 类别保留每帧原有内容。传播批次的放大微调器会显示全部活动类别，数字键 `1`–`5` 同样按类别顺序切换。当前关键帧之前的已审核帧始终只用于对照，不能被覆盖。需要重新写入关键帧之后的审核结果时，在传播预览中开启“允许覆盖向后已审核帧”，再手动勾选需要覆盖的帧。确认页面会显示覆盖数量，未勾选的审核结果保持不变。批量确认后，审核页面停留在本批最后一张已保存的帧。
+默认向前传播 4 帧，向后传播 16 帧。向前范围为 0 到 32，向后接受任意非负数，并在片段末尾停止。更大的范围会增加显存占用和等待时间。
 
-在传播预览中，按住 `Shift` 点击勾选框可以连续选择或取消一段帧，也可以按住鼠标拖过多个勾选框批量操作。进入放大微调后，按 `X` 会清空当前帧的全部 Mask，按 `Ctrl+Z` 可以撤销。
+## 面向更多使用者的改造顺序
 
-默认向前 4 帧、向后 16 帧。向前传播允许范围是 0 到 32，向后传播接受任意非负帧数，并在当前片段末尾自动停止。较大的传播范围会增加显存占用和等待时间。探头移动、目标形态突变、横纵切换或目标离开画面时，应取消边界不准的帧，重新选择关键帧传播。
+下面这些改造会把当前的固定目录加载器变成可扩展的数据入口：
 
-## 常见问题
+1. 定义统一的 `ImageSource` 接口，把片段发现、帧排序、像素读取和数据指纹分开。
+2. 先增加清单驱动导入和常见静态图像格式，再添加视频解码与 DICOM 适配器。
+3. 给灰度转换、位深、方向、窗宽窗位和尺寸变化建立显式策略，禁止静默转换医学影像。
+4. 把桌面启动器设为可选依赖，补充无界面安装包和容器入口。
+5. 扩展自动化测试，覆盖 Windows、Linux、macOS、路径迁移和真实小型样例数据。
+6. 在导出层增加 COCO、CVAT 和 nnU-Net 等适配器，内部项目格式继续保持稳定。
 
-### 缺少 SAM2 模型
+当前仓库先加入跨平台的轻量 CI，检查 Python 语法、命令行入口和加载器规则。模型推理测试需要单独的带 GPU 工作流，普通贡献者提交代码时不会下载模型权重。
 
-运行：
+## 参与贡献
 
-```bash
-python scripts/download_model.py
-```
+项目欢迎影像格式适配、交互改进、测试、文档和数据导出方面的贡献。开始前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。涉及临床数据的 issue、测试和截图必须先去标识化，不要提交原始影像、患者信息、模型权重或本机配置。
 
-下载中断或校验失败时：
+## SAM2 来源与许可证
 
-```bash
-python scripts/download_model.py --force
-```
+仓库保留了 [facebookresearch/sam2](https://github.com/facebookresearch/sam2) 提交 `2b90b9f5ceec907a1c18123530e92e794ad901a4b` 的运行子集。上游许可证位于 `sam2/LICENSE` 和 `sam2/LICENSE_cctorch`，精简说明见 `sam2/VENDORED.md`。
 
-### `init.tcl` 或 Tcl/Tk 错误
-
-Conda 环境可以重新安装 Tk：
-
-```bash
-conda install -n usdia-seg -c conda-forge --force-reinstall tk
-```
-
-使用 `.venv` 时，Tk 来自创建虚拟环境的基础 Python，无法通过 `pip install tkinter` 添加。Windows 或 macOS 请修复或重新安装包含 Tcl/Tk 的 Python 3.11，然后重新创建 `.venv`。Debian 或 Ubuntu 请安装对应的 `python3-tk` 系统包后重新创建 `.venv`。
-
-如果只使用命令行和浏览器服务，Tk 启动器不是必需的。
-
-### CUDA 不可用
-
-`auto` 会在 CUDA 可用时使用 GPU，否则回退 CPU。运行 `python dataseg.py doctor` 查看 PyTorch、CUDA 和 GPU 状态。
-
-### 端口被占用
-
-在启动器中更换端口，或运行：
-
-```bash
-python dataseg.py status
-python dataseg.py stop
-```
-
-### 浏览器页面属于旧项目
-
-关闭旧页面，从 Tk 启动器重新点击“打开标定页面”。DataSeg 会校验项目 ID 和服务实例，旧页面不能向新项目写入 Mask。
-
-## 仓库结构
-
-```text
-DataSeg/
-├─ app/                    # 本地 HTTP 服务和网页标定界面
-├─ sam2/sam2/              # 运行所需的精简版 SAM2 源码
-├─ scripts/                # 下载模型、准备数据和启动脚本
-├─ config.example.json     # 安全配置示例
-├─ dataseg.py              # 命令行入口
-├─ dataseg_gui.py          # Tk 桌面启动器
-├─ DataSeg启动器.cmd       # Windows 双击入口
-├─ environment.yml
-├─ LICENSE
-├─ requirements.txt
-├─ README.md
-└─ README.en.md
-```
-
-## SAM2 来源
-
-本项目保留了 [facebookresearch/sam2](https://github.com/facebookresearch/sam2) 在提交 `2b90b9f5ceec907a1c18123530e92e794ad901a4b` 的运行子集。示例、notebook、训练、数据集和 Docker 内容已经删除。上游许可证保存在 `sam2/LICENSE` 和 `sam2/LICENSE_cctorch`，精简说明见 `sam2/VENDORED.md`。
-
-## 许可证
-
-DataSeg 自有代码使用 [Apache License 2.0](LICENSE)。仓库中保留的 SAM2 和 cctorch 代码分别遵循 `sam2/LICENSE` 与 `sam2/LICENSE_cctorch`。
+MoiraiSeg 自有代码使用 [Apache License 2.0](LICENSE)。仓库内的 SAM2 和 cctorch 代码遵循各自许可证。
