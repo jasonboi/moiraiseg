@@ -26,7 +26,13 @@ class PropagationFrame:
 class PropagationResult:
     index: int
     reviewed: bool
-    mask: Image.Image
+    masks: dict[str, Image.Image]
+
+    @property
+    def mask(self) -> Image.Image:
+        if len(self.masks) != 1:
+            raise ValueError("A single mask is only available for one category")
+        return next(iter(self.masks.values()))
 
 
 @dataclass(frozen=True)
@@ -77,7 +83,7 @@ class Sam2PropagationService:
                 str(self.checkpoint),
                 device=self.device,
                 hydra_overrides_extra=[
-                    "++model.non_overlap_masks=true",
+                    "++model.non_overlap_masks=false",
                     "++model.add_all_frames_to_correct_as_cond=true",
                 ],
             )
@@ -106,25 +112,46 @@ class Sam2PropagationService:
         self,
         frames: list[PropagationFrame],
         keyframe_position: int,
-        keyframe_mask: Image.Image,
+        keyframe_mask: Image.Image | None = None,
+        *,
+        keyframe_masks: dict[str, Image.Image] | None = None,
     ) -> list[PropagationResult]:
         if not 0 <= keyframe_position < len(frames):
             raise ValueError("Keyframe position is outside the propagation window")
-        binary_keyframe = keyframe_mask.convert("L").point(
-            lambda value: 255 if value >= 128 else 0,
-            mode="L",
-        )
-        if binary_keyframe.getbbox() is None:
-            raise ValueError("SAM2 keyframe mask is empty")
+        if keyframe_mask is not None:
+            if keyframe_masks is not None:
+                raise ValueError("Provide either keyframe_mask or keyframe_masks")
+            keyframe_masks = {"mask": keyframe_mask}
+        if not isinstance(keyframe_masks, dict) or not keyframe_masks:
+            raise ValueError("SAM2 propagation requires keyframe masks")
+        binary_keyframes = {
+            folder_name: mask.convert("L").point(
+                lambda value: 255 if value >= 128 else 0,
+                mode="L",
+            )
+            for folder_name, mask in keyframe_masks.items()
+        }
+        seeded_masks = {
+            folder_name: mask
+            for folder_name, mask in binary_keyframes.items()
+            if mask.getbbox() is not None
+        }
+        if not seeded_masks:
+            raise ValueError("SAM2 keyframe masks are empty")
+        object_categories = {
+            object_id: folder_name
+            for object_id, folder_name in enumerate(seeded_masks, start=1)
+        }
 
         with self.lock, tempfile.TemporaryDirectory(prefix="reviewer_sam2_") as temporary:
             video_root = Path(temporary) / "frames"
             expected_size = self._prepare_video(frames, video_root)
-            if binary_keyframe.size != expected_size:
-                raise ValueError(
-                    f"Keyframe mask size {binary_keyframe.size} does not match "
-                    f"source {expected_size}"
-                )
+            for folder_name, mask in binary_keyframes.items():
+                if mask.size != expected_size:
+                    raise ValueError(
+                        f"Keyframe mask {folder_name} size {mask.size} does not match "
+                        f"source {expected_size}"
+                    )
 
             predictor = self._get_predictor()
             inference_context = torch.inference_mode()
@@ -134,7 +161,7 @@ class Sam2PropagationService:
                 else nullcontext()
             )
             state = None
-            predictions: dict[int, Image.Image] = {}
+            predictions: dict[int, dict[str, Image.Image]] = {}
             try:
                 with inference_context, autocast_context:
                     state = predictor.init_state(
@@ -142,31 +169,63 @@ class Sam2PropagationService:
                         offload_video_to_cpu=True,
                         offload_state_to_cpu=False,
                     )
-                    predictor.add_new_mask(
-                        inference_state=state,
-                        frame_idx=keyframe_position,
-                        obj_id=1,
-                        mask=np.asarray(binary_keyframe, dtype=np.uint8) > 0,
-                    )
+                    for object_id, folder_name in object_categories.items():
+                        predictor.add_new_mask(
+                            inference_state=state,
+                            frame_idx=keyframe_position,
+                            obj_id=object_id,
+                            mask=np.asarray(
+                                seeded_masks[folder_name], dtype=np.uint8
+                            ) > 0,
+                        )
                     directions = (False, True) if keyframe_position > 0 else (False,)
                     for reverse in directions:
-                        for position, _, logits in predictor.propagate_in_video(
+                        for position, object_ids, logits in predictor.propagate_in_video(
                             state,
                             start_frame_idx=keyframe_position,
                             reverse=reverse,
                         ):
-                            masks = (
-                                logits.detach().float().cpu().numpy()[:, 0] > 0.0
+                            if (
+                                not isinstance(position, (int, np.integer))
+                                or not 0 <= position < len(frames)
+                            ):
+                                raise RuntimeError(
+                                    "SAM2 returned an invalid frame index"
+                                )
+                            if (
+                                len(object_ids) != len(object_categories)
+                                or set(object_ids) != set(object_categories)
+                            ):
+                                raise RuntimeError(
+                                    "SAM2 returned incomplete object predictions "
+                                    f"for frame {position}"
+                                )
+                            masks = logits.detach().float().cpu().numpy()
+                            expected_shape = (
+                                len(object_ids),
+                                1,
+                                expected_size[1],
+                                expected_size[0],
                             )
-                            merged = np.any(masks, axis=0).astype(np.uint8) * 255
-                            predictions[int(position)] = Image.fromarray(
-                                merged,
-                                mode="L",
-                            )
+                            if masks.shape != expected_shape:
+                                raise RuntimeError(
+                                    f"SAM2 returned mask shape {masks.shape}, "
+                                    f"expected {expected_shape}"
+                                )
+                            predictions[int(position)] = {
+                                object_categories[object_id]: Image.fromarray(
+                                    (masks[offset, 0] > 0.0).astype(np.uint8) * 255,
+                                    mode="L",
+                                )
+                                for offset, object_id in enumerate(object_ids)
+                            }
             finally:
                 if state is not None and hasattr(predictor, "reset_state"):
                     predictor.reset_state(state)
-            predictions[keyframe_position] = binary_keyframe.copy()
+            predictions[keyframe_position] = {
+                folder_name: mask.copy()
+                for folder_name, mask in seeded_masks.items()
+            }
 
         if len(predictions) != len(frames):
             raise RuntimeError(
@@ -176,7 +235,7 @@ class Sam2PropagationService:
             PropagationResult(
                 index=frame.index,
                 reviewed=frame.reviewed,
-                mask=predictions[position],
+                masks=predictions[position],
             )
             for position, frame in enumerate(frames)
         ]

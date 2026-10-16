@@ -146,6 +146,9 @@ const ENGLISH_TEXT = {
   "已载入保存后的审核 Mask": "Loaded the saved reviewed Mask",
   "已载入预识别 Mask": "Loaded the candidate Mask",
   "SAM2 返回了未知的 Mask 类别": "SAM2 returned an unknown Mask label.",
+  "SAM2 传播全部 Mask": "Propagate all Masks with SAM2",
+  "当前帧所有 Mask 均为空。请先用套索或画笔标出目标，再按 P 传播": "All Masks on this frame are empty. Mark a target with the lasso or brush, then press P.",
+  "正在传播当前帧所有已勾画的 Mask…": "Propagating all annotated Masks on this frame…",
   "当前已审核帧有新修改，请先按 S 保存，再按 P 传播": "This reviewed frame has unsaved changes. Press S to save, then P to propagate.",
   "SAM2 关键帧传播失败": "SAM2 keyframe propagation failed.",
   "没有可以审核的传播帧。": "No propagated frames are available for review.",
@@ -215,12 +218,11 @@ function englishDynamicText(value) {
     [/^正在用套索添加(.+) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Adding the ${label} Mask with the lasso. Changes stay in this preview until confirmed.`],
     [/^正在用画笔填涂(.+) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Painting the ${label} Mask. Changes stay in this preview until confirmed.`],
     [/^正在擦除(.+) Mask。所有修改先保存在本次预览中。$/, (match, label) => `Erasing the ${label} Mask. Changes stay in this preview until confirmed.`],
-    [/^当前(.+) Mask 为空。请先用套索或画笔标出目标，再按 P 传播$/, (match, label) => `The current ${label} Mask is empty. Mark the target with the lasso or brush, then press P.`],
-    [/^正在传播当前帧(.+) Mask…$/, (match, label) => `Propagating the current ${label} Mask…`],
     [/^SAM2 (.+)传播预览$/, (match, label) => `SAM2 ${label} propagation preview`],
     [/^人工关键帧 · (.+)双向传播$/, (match, label) => `Manual keyframe · bidirectional ${label} propagation`],
-    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(.+) Mask。其它活动类别保留每帧原有内容。关键帧之前的已审核帧始终受保护。需要重写向后传播结果时，请开启“允许覆盖向后已审核帧”并手动勾选。$/, (match, before, after, label) => `SAM2 propagated the ${label} Mask ${before} previous frames and ${after} following frames from the current keyframe. Other active Mask categories keep each frame's existing content. Reviewed frames before the keyframe always stay protected. To replace following propagation results, enable “Allow overwriting following reviewed frames” and select them manually.`],
-    [/^SAM2 已从当前关键帧向前 (\d+) 帧、向后 (\d+) 帧传播(.+) Mask。其它活动类别保留每帧原有内容。关键帧之前的已审核帧仍受保护。只有手动勾选的向后已审核帧会被重写。$/, (match, before, after, label) => `SAM2 propagated the ${label} Mask ${before} previous frames and ${after} following frames from the current keyframe. Other active Mask categories keep each frame's existing content. Reviewed frames before the keyframe remain protected. Only selected reviewed frames after the keyframe will be replaced.`],
+    [/^向前 (\d+) 帧、向后 (\d+) 帧一起传播(.+) Mask。(.*)$/, (match, before, after, labels, details) => `Propagating ${labels} together across ${before} previous and ${after} following frames. ${englishText(details)}`],
+    [/^只有手动勾选的向后已审核帧会被重写。(.*)$/, (match, details) => `Only manually selected following reviewed frames will be overwritten. ${englishText(details)}`],
+    [/^关键帧中为空的(.+)保留各帧原有内容。$/, (match, labels) => `${labels} are empty on the keyframe and keep their existing content on each frame.`],
     [/^通过选中 (\d+) 帧$/, "Accept $1 selected frames"],
     [/^确认保存这 (\d+) 帧 SAM2 传播预览中的 Mask 吗？(.*)$/s, (match, count, warning) => `Save the Masks from these ${count} SAM2 propagation preview frames?${englishText(warning)}`],
     [/^另有 (\d+) 张已微调帧未勾选，这些修改会被丢弃。$/, "$1 edited frames are not selected. Their changes will be discarded."],
@@ -337,7 +339,7 @@ const state = {
   lassoPoints: [],
   strokePoints: [],
   batch: {
-    propagatedLabel: null,
+    propagatedLabels: [],
     requestId: 0,
     open: false,
     loading: false,
@@ -1215,7 +1217,7 @@ function activateCategoryAfterRemoval(removedIndex) {
   const category = categories[Math.min(removedIndex, categories.length - 1)] || null;
   state.activeLabel = category?.folder_name || null;
   if (state.activeLabel) state.overlayVisible[state.activeLabel] = true;
-  state.batch.propagatedLabel = state.activeLabel;
+  state.batch.propagatedLabels = [];
   state.batch.editor.activeLabel = state.activeLabel;
 }
 
@@ -1441,7 +1443,7 @@ async function restoreMaskCategory(archiveId, { fromConflict = false } = {}) {
     );
     state.activeLabel = category.folder_name;
     state.overlayVisible[category.folder_name] = true;
-    state.batch.propagatedLabel = state.activeLabel;
+    state.batch.propagatedLabels = [];
     state.batch.editor.activeLabel = state.activeLabel;
     state.archiveSaving = false;
     if (fromConflict) {
@@ -1747,7 +1749,7 @@ function applyMaskCategoryMutation(result, editing) {
     state.manifest.mask_categories.push(category);
     state.activeLabel = category.folder_name;
     state.overlayVisible[category.folder_name] = true;
-    state.batch.propagatedLabel = state.activeLabel;
+    state.batch.propagatedLabels = [];
     state.batch.editor.activeLabel = state.activeLabel;
     if (state.sourceImage) addBlankCategoryToCurrentFrame(category.folder_name);
   }
@@ -1965,7 +1967,7 @@ function syncUi() {
   });
   all('[data-action="sam2-propagate"]').forEach((button) => {
     button.disabled = state.loading || state.saving || state.batch.loading || state.batch.saving || !masksReady();
-    button.innerHTML = `SAM2 传播${labelDisplayName(state.activeLabel)} <kbd>P</kbd>`;
+    button.innerHTML = `SAM2 传播全部 Mask <kbd>P</kbd>`;
   });
   const hasPendingItem = state.manifest.items.some(
     (manifestItem) => !manifestItem.reviewed,
@@ -2173,36 +2175,34 @@ function maskCanvasHasPixels(canvas) {
 
 async function loadSam2Preview(item) {
   const sourceImage = await loadImage(`/api/item/${item.index}/image`);
-  if (!categoryFolders().includes(item.label)) {
+  const propagatedMasks = item.masks;
+  if (
+    !propagatedMasks ||
+    state.batch.propagatedLabels.some((label) => !propagatedMasks[label]) ||
+    Object.keys(propagatedMasks).some((label) => !state.batch.propagatedLabels.includes(label))
+  ) {
     throw new Error("SAM2 返回了未知的 Mask 类别");
   }
-  const propagatedImage = await loadImage(item.mask);
-  const propagatedLabel = item.label;
   const masks = Object.fromEntries(await Promise.all(
     categoryFolders()
-      .filter((folderName) => folderName !== propagatedLabel)
       .map(async (folderName) => {
-        if (item.index === state.index && state.dirty) {
+        if (!propagatedMasks[folderName] && item.index === state.batch.keyframeIndex) {
           return [folderName, cloneMaskCanvas(state.masks[folderName])];
         }
-        const preservedImage = await loadImage(
-          `/api/item/${item.index}/mask/${encodeURIComponent(folderName)}`,
+        const maskImage = await loadImage(
+          propagatedMasks[folderName] ||
+            `/api/item/${item.index}/mask/${encodeURIComponent(folderName)}`,
         );
         return [
           folderName,
           maskCanvasFromImage(
-            preservedImage,
+            maskImage,
             sourceImage.naturalWidth,
             sourceImage.naturalHeight,
           ),
         ];
       }),
   ));
-  masks[propagatedLabel] = maskCanvasFromImage(
-    propagatedImage,
-    sourceImage.naturalWidth,
-    sourceImage.naturalHeight,
-  );
   return {
     index: item.index,
     item,
@@ -2226,21 +2226,24 @@ async function loadSam2Preview(item) {
 }
 
 async function openSam2Propagation() {
-  const propagationLabel = state.activeLabel;
+  const folders = categoryFolders();
   if (
     state.loading ||
     state.saving ||
+    state.batch.open ||
     state.batch.loading ||
     state.batch.saving ||
-    !state.masks[propagationLabel]
+    !folders.length ||
+    folders.some((label) => !state.masks[label])
   ) return;
   if (state.dirty && state.currentItem.reviewed) {
     setStatus("当前已审核帧有新修改，请先按 S 保存，再按 P 传播", "error");
     return;
   }
-  if (!maskCanvasHasPixels(state.masks[propagationLabel])) {
+  const propagationLabels = folders.filter((label) => maskCanvasHasPixels(state.masks[label]));
+  if (!propagationLabels.length) {
     setStatus(
-      `当前${labelDisplayName(propagationLabel)} Mask 为空。请先用套索或画笔标出目标，再按 P 传播`,
+      "当前帧所有 Mask 均为空。请先用套索或画笔标出目标，再按 P 传播",
       "error",
     );
     return;
@@ -2248,7 +2251,8 @@ async function openSam2Propagation() {
 
   const keyframeIndex = state.index;
   const requestId = ++state.batch.requestId;
-  state.batch.propagatedLabel = propagationLabel;
+  state.batch.propagatedLabels = propagationLabels;
+  state.batch.editor.activeLabel = state.activeLabel || propagationLabels[0];
   state.batch.editor.open = false;
   state.batch.open = true;
   state.batch.loading = true;
@@ -2265,7 +2269,7 @@ async function openSam2Propagation() {
   const grid = document.querySelector('[data-role="batch-grid"]');
   if (grid) {
     grid.innerHTML =
-      `<div class="batch-loading"><div class="spinner"></div><span>正在传播当前帧${labelDisplayName(propagationLabel)} Mask…</span></div>`;
+      `<div class="batch-loading"><div class="spinner"></div><span>正在传播当前帧所有已勾画的 Mask…</span></div>`;
   }
   syncBatchUi();
 
@@ -2277,8 +2281,10 @@ async function openSam2Propagation() {
         index: keyframeIndex,
         before: sam2BeforeFrames(),
         after: sam2AfterFrames(),
-        label: propagationLabel,
-        mask: exportMaskDataUrl(state.masks[propagationLabel]),
+        masks: Object.fromEntries(folders.map((label) => [
+          label,
+          exportMaskDataUrl(state.masks[label]),
+        ])),
       }),
     });
     const result = await response.json();
@@ -2297,6 +2303,12 @@ async function openSam2Propagation() {
     }
     state.batch.reviewToken = reviewToken;
     startSam2ReviewHeartbeat(reviewToken);
+    if (
+      !Array.isArray(result.labels) ||
+      result.labels.length !== propagationLabels.length ||
+      new Set(result.labels).size !== propagationLabels.length ||
+      result.labels.some((label) => !propagationLabels.includes(label))
+    ) throw new Error("SAM2 返回了未知的 Mask 类别");
     const items = await Promise.all(result.items.map(loadSam2Preview));
     if (
       requestId !== state.batch.requestId ||
@@ -2312,6 +2324,7 @@ async function openSam2Propagation() {
     syncBatchUi();
   } catch (error) {
     if (requestId !== state.batch.requestId) return;
+    releaseSam2Review();
     state.batch.loading = false;
     state.batch.error = error.message;
     syncBatchUi();
@@ -2496,7 +2509,9 @@ function openBatchEditor(index) {
   editor.gestureLabel = null;
   editor.lassoPoints = [];
   editor.strokePoints = [];
-  editor.activeLabel = state.batch.propagatedLabel;
+  if (!categoryFolders().includes(editor.activeLabel)) {
+    editor.activeLabel = state.batch.propagatedLabels[0] || categoryFolders()[0];
+  }
   editor.tool = state.batch.items[position].selectable ? editor.addTool : "pan";
   syncBatchUi();
   requestAnimationFrame(() => {
@@ -2930,7 +2945,10 @@ function syncBatchUi() {
   const modal = document.querySelector('[data-role="batch-modal"]');
   if (!modal) return;
   syncCategoryManagementControls();
-  const propagatedName = labelDisplayName(state.batch.propagatedLabel);
+  const propagatedName = state.batch.propagatedLabels.map(labelDisplayName).join("、");
+  const preservedNames = categoryFolders()
+    .filter((label) => !state.batch.propagatedLabels.includes(label))
+    .map(labelDisplayName).join("、");
   modal.hidden = !state.batch.open;
   document.body.classList.toggle("batch-modal-open", state.batch.open);
   const overview = document.querySelector('[data-role="batch-overview"]');
@@ -2950,8 +2968,8 @@ function syncBatchUi() {
   setBoundText(
     "batch-guidance",
     state.batch.overwriteReviewed
-      ? `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。其它活动类别保留每帧原有内容。关键帧之前的已审核帧仍受保护。只有手动勾选的向后已审核帧会被重写。`
-      : `SAM2 已从当前关键帧向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧传播${propagatedName} Mask。其它活动类别保留每帧原有内容。关键帧之前的已审核帧始终受保护。需要重写向后传播结果时，请开启“允许覆盖向后已审核帧”并手动勾选。`,
+      ? `向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧一起传播${propagatedName} Mask。只有手动勾选的向后已审核帧会被重写。${preservedNames ? `关键帧中为空的${preservedNames}保留各帧原有内容。` : ""}`
+      : `向前 ${sam2BeforeFrames()} 帧、向后 ${sam2AfterFrames()} 帧一起传播${propagatedName} Mask。${preservedNames ? `关键帧中为空的${preservedNames}保留各帧原有内容。` : ""}`,
   );
   all('[data-control="batch-overwrite-reviewed"]').forEach((input) => {
     input.checked = state.batch.overwriteReviewed;
@@ -3059,7 +3077,7 @@ function closeBatchReview(force = false) {
   state.batch.loading = false;
   state.batch.overwriteReviewed = false;
   state.batch.keyframeIndex = null;
-  state.batch.propagatedLabel = state.activeLabel;
+  state.batch.propagatedLabels = [];
   state.batch.editor.open = false;
   state.batch.editor.history = [];
   state.batch.editor.drawing = false;
@@ -3147,7 +3165,7 @@ async function acceptBatchCandidates() {
       state.manifest.items[index].reviewed = true;
     });
     state.manifest.processed = result.processed;
-    const completedLabel = state.batch.propagatedLabel;
+    const completedNames = state.batch.propagatedLabels.map(labelDisplayName).join("、");
     const lastSavedIndex = Number.isInteger(result.last_saved_index)
       ? result.last_saved_index
       : indices[indices.length - 1];
@@ -3157,8 +3175,8 @@ async function acceptBatchCandidates() {
       lastSavedIndex,
       true,
       result.overwritten_count
-        ? `已保存 ${result.saved_count} 帧 SAM2 ${labelDisplayName(completedLabel)}传播 Mask，其中 ${result.overwritten_count} 张已审核帧已覆盖`
-        : `已保存 ${result.saved_count} 帧 SAM2 ${labelDisplayName(completedLabel)}传播 Mask，取消勾选的帧仍保留待审核`,
+        ? `已保存 ${result.saved_count} 帧 SAM2 ${completedNames}传播 Mask，其中 ${result.overwritten_count} 张已审核帧已覆盖`
+        : `已保存 ${result.saved_count} 帧 SAM2 ${completedNames}传播 Mask，取消勾选的帧仍保留待审核`,
     );
   } catch (error) {
     state.batch.saving = false;
@@ -3709,7 +3727,7 @@ async function init() {
         true,
       ]),
     );
-    state.batch.propagatedLabel = state.activeLabel;
+    state.batch.propagatedLabels = [];
     state.batch.editor.activeLabel = state.activeLabel;
     const requestedIndex = Number(new URLSearchParams(window.location.search).get("index"));
     state.index = Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < manifest.total ? requestedIndex : 0;

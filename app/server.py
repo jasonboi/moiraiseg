@@ -859,9 +859,8 @@ class ReviewerStore:
         payload: dict,
         service: Sam2PropagationService,
     ) -> dict:
-        folder_name = payload.get("label")
-        if folder_name not in self.category_folders:
-            raise ValueError("SAM2 propagation category is not active")
+        if not isinstance(payload, dict):
+            raise ValueError("SAM2 propagation payload must be an object")
         review_token = self._open_sam2_review()
         try:
             result = self._sam2_preview(index, payload, service)
@@ -885,48 +884,81 @@ class ReviewerStore:
             for value in (before, after)
         ):
             raise ValueError("SAM2 propagation ranges must be integers")
+        legacy_request = "masks" not in payload
         label = payload.get("label")
-        if label not in self.category_folders:
-            raise ValueError("SAM2 propagation category is not active")
+        if legacy_request:
+            if label not in self.category_folders:
+                raise ValueError("SAM2 propagation category is not active")
+            if "mask" not in payload:
+                raise ValueError(f"SAM2 propagation requires a {label} mask")
+            mask_payloads = {label: payload["mask"]}
+        else:
+            mask_payloads = payload["masks"]
+            if not isinstance(mask_payloads, dict):
+                raise ValueError("SAM2 propagation masks must be an object")
+            unknown = set(mask_payloads) - set(self.category_folders)
+            if unknown:
+                raise ValueError("SAM2 propagation category is not active")
+            missing = set(self.category_folders) - set(mask_payloads)
+            if missing:
+                raise ValueError(
+                    f"SAM2 propagation is missing masks for {', '.join(sorted(missing))}"
+                )
+            mask_payloads = {
+                folder_name: mask_payloads[folder_name]
+                for folder_name in self.category_folders
+            }
         with Image.open(self.image_path(index)) as source:
             expected_size = source.size
-        try:
-            keyframe_mask = self._decode_mask(payload["mask"], expected_size)
-        except KeyError as error:
-            raise ValueError(
-                f"SAM2 propagation requires a {label} mask"
-            ) from error
+        keyframe_masks = {
+            folder_name: self._decode_mask(data_url, expected_size)
+            for folder_name, data_url in mask_payloads.items()
+        }
+        labels = [
+            folder_name
+            for folder_name, mask in keyframe_masks.items()
+            if mask.getbbox() is not None
+        ]
+        if not labels:
+            raise ValueError("SAM2 keyframe masks are empty")
 
         window = self.propagation_window(index, before=before, after=after)
         results = service.propagate(
             frames=window.frames,
             keyframe_position=window.keyframe_position,
-            keyframe_mask=keyframe_mask,
+            keyframe_masks=keyframe_masks,
         )
         items = []
         for result in results:
             item = self.item(result.index)
-            items.append(
-                {
-                    "index": result.index,
-                    "clip": item["clip"],
-                    "frame_index": item["frame_index"],
-                    "source_name": item["source_name"],
-                    "reviewed": result.reviewed,
-                    "is_keyframe": result.index == index,
-                    "label": label,
-                    "mask": png_data_url(result.mask),
-                }
-            )
-        return {
+            masks = {
+                folder_name: png_data_url(result.masks[folder_name])
+                for folder_name in labels
+            }
+            preview_item = {
+                "index": result.index,
+                "clip": item["clip"],
+                "frame_index": item["frame_index"],
+                "source_name": item["source_name"],
+                "reviewed": result.reviewed,
+                "is_keyframe": result.index == index,
+                "masks": masks,
+            }
+            if legacy_request:
+                preview_item.update(label=label, mask=masks[label])
+            items.append(preview_item)
+        preview = {
             "clip": window.clip,
             "keyframe_index": index,
             "keyframe_position": window.keyframe_position,
-            "label": label,
+            "labels": labels,
             "before": before,
             "after": after,
             "items": items,
         }
+        if legacy_request:
+            preview["label"] = label
+        return preview
 
     def image_path(self, index: int) -> Path:
         return Path(self.item(index)["source_path"])
@@ -1354,6 +1386,8 @@ class ReviewerHandler(SimpleHTTPRequestHandler):
                 if length <= 0 or length > 10_000_000:
                     raise ValueError("Invalid request size")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("SAM2 propagation payload must be an object")
                 index = payload.get("index")
                 if not isinstance(index, int) or isinstance(index, bool):
                     raise ValueError("SAM2 keyframe index must be an integer")

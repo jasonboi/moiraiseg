@@ -23,7 +23,7 @@ The current release does not directly import DICOM, NIfTI, video, or device-spec
 ## Features
 
 - Lasso, brush, and eraser editing
-- SAM2.1 Hiera Tiny propagation
+- SAM2.1 Hiera Tiny propagation of multiple Mask categories together
 - Single-frame saves, propagation-batch selection, and enlarged editing
 - Zero to five custom Mask categories with archive recovery
 - Automatic CUDA or CPU selection
@@ -37,7 +37,7 @@ The current release does not directly import DICOM, NIfTI, video, or device-spec
 1. Put each acquisition clip's PNG images in a `frames/` directory.
 2. Select the source directory and a separate output directory.
 3. Create Mask categories and draw a keyframe in the browser.
-4. Propagate with SAM2.1, reject inaccurate frames, and refine the accepted Masks.
+4. Press `P` to propagate all annotated Mask categories on the keyframe together in both directions. Open frames in the same preview, switch categories with the category buttons or `1` through `5`, refine the Masks, and save selected frames together. Categories empty on the keyframe keep their existing content on each frame.
 5. Save reviewed frames, then clean and split the exported dataset by independent data source before training.
 
 Start a new propagation batch when the scene changes sharply, the view switches, the target deforms substantially, or the target leaves the image.
